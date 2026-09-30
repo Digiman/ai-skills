@@ -30,4 +30,7 @@ so there is exactly one copy of each skill.
 
 | Skill | What it does |
 | ----- | ------------ |
-| [dotnet-versions](skills/dotnet-versions) | Audits installed .NET SDKs/runtimes, decides what to keep, prints sudo commands for the user to run. |
+| [dotnet-versions](skills/dotnet-versions) | Audits installed .NET SDKs/runtimes against Microsoft's release index for support status, decides what to keep, prints sudo commands for the user to run. |
+
+Each skill may also carry a `tests/` directory. Run them with
+`python3 skills/<name>/tests/test-*.py`.

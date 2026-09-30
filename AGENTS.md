@@ -7,6 +7,7 @@ directory per skill under `skills/`.
 
 - `skills/<name>/SKILL.md` — required. YAML frontmatter, then the instructions.
 - `skills/<name>/scripts/` — executable code the agent runs.
+- `skills/<name>/tests/` — unit tests for the decision logic in `scripts/`.
 - `skills/<name>/references/` — docs the agent reads on demand.
 - `skills/<name>/assets/` — templates and data.
 - `scripts/install.sh` — links each skill into `~/.agents/skills`.
@@ -42,6 +43,15 @@ Scripts should locate siblings with `Path(__file__)`.
 **Say when to stop.** State the exit conditions explicitly: what the agent must
 hand over verbatim, what it must not run, what counts as failure. A skill that
 does not know where to stop will keep going.
+
+**No hardcoded facts that go stale.** Version numbers, prices, and API
+responses belong to a fetch, not to the file. A skill that says "latest is
+10.0.401" is wrong within a month. Put volatile data behind a script, cache
+it, and degrade to "unknown" rather than guessing when the fetch fails.
+
+**Test the decision logic, not the formatting.** A machine where the skill has
+nothing to do will never exercise the interesting paths, so unit-test them
+against synthetic inputs. `python3 skills/<name>/tests/test-*.py`.
 
 **Keep `SKILL.md` under 500 lines.** Push detail into `references/` and let the
 agent load it only when it matters.
