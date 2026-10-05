@@ -1,4 +1,13 @@
-.DS_Store
+# Python
 __pycache__/
 *.pyc
 .venv/
+
+# APM build output and local resolution cache. apm.lock.yaml is consumer-side
+# state; this repo has no dependencies to pin.
+build/
+apm_modules/
+apm.lock.yaml
+.apm-pin
+
+.DS_Store

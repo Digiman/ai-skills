@@ -1,0 +1,27 @@
+# APM manifest. Makes this repo an installable APM package; a bare
+# skills/<name>/SKILL.md tree also works without it, but APM then synthesizes
+# minimal metadata and `apm pack` warns about the missing description.
+#
+# Spec: https://microsoft.github.io/apm/reference/manifest-schema/
+# Keep `version` in step with skills/*/SKILL.md `metadata.version`.
+name: ai-skills
+version: 0.1.0
+description: Custom Agent Skills for .NET and other developer workflows
+author: Andrey Kukharenko
+license: MIT
+homepage: https://github.com/digiman/ai-skills
+repository: https://github.com/digiman/ai-skills
+
+# Skills only, no instructions/prompts/agents/hooks/MCP. `type: skill` keeps
+# APM from emitting AGENTS.md into this repo, which authors that by hand.
+type: skill
+
+# Explicit consent to deploy and pack local content. Required by
+# policy.manifest.require_explicit_includes in a locked-down org.
+includes: auto
+
+# An explicit empty list is what makes `apm pack` emit a bundle. Without a
+# dependencies block APM has nothing to pack. `apm install owner/repo` works
+# either way, so drop this if you only distribute over git.
+dependencies:
+  apm: []

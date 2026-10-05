@@ -1,0 +1,42 @@
+name: validate skills
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  skills:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install validator dependencies
+        run: pip install pyyaml
+
+      - name: Validate frontmatter and packaging
+        run: ./scripts/validate.py
+
+      - name: Run decision-logic tests
+        run: |
+          found=0
+          for t in tests/*/test-*.py; do
+            [ -e "$t" ] || continue
+            echo "::group::$t"
+            python3 "$t"
+            found=1
+          done
+          [ "$found" = 1 ] || { echo "no tests found"; exit 1; }
+
+      - name: Confirm APM sees the skills
+        run: |
+          curl -sSL https://aka.ms/apm-unix | sh
+          apm pack --dry-run
+
+      - name: Confirm the skills CLI discovers every skill
+        run: |
+          npx -y skills@latest add . --list

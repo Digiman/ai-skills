@@ -1,19 +1,42 @@
 # Working on this repo
 
 Repo of custom [Agent Skills](https://agentskills.io/specification). One
-directory per skill under `skills/`.
+directory per skill under `skills/`, distributed with either the `skills` CLI
+(`npx skills add owner/repo`) or [APM](https://microsoft.github.io/apm/)
+(`apm install owner/repo`).
 
 ## Layout
 
 - `skills/<name>/SKILL.md` — required. YAML frontmatter, then the instructions.
 - `skills/<name>/scripts/` — executable code the agent runs.
-- `skills/<name>/tests/` — unit tests for the decision logic in `scripts/`.
 - `skills/<name>/references/` — docs the agent reads on demand.
 - `skills/<name>/assets/` — templates and data.
+- `tests/<name>/test-*.py` — tests for the decision logic. Repo root, not in
+  the skill: see "What ships" below.
 - `scripts/install.sh` — links each skill into `~/.agents/skills`.
+- `scripts/validate.py` — spec and packaging checks.
+- `apm.yml` — the APM manifest. Keep its `version` in step with
+  `metadata.version` in each `SKILL.md`.
 
-`.agents/skills` is a symlink to `skills/`. Do not add real directories under
-`.agents/` — edit the target.
+Do not create `.agents/skills/` here. `npx skills` scans both `skills/` and
+`.agents/skills/`, so a symlink between them doubles the discovery surface,
+and APM deploys *to* `.agents/skills/`, so a symlink there makes its own
+deploy a silent no-op. `./scripts/install.sh` covers the local machine.
+
+## What ships
+
+Both package managers copy a skill folder **whole**. Anything under
+`skills/<name>/` lands in every consumer's harness directory. So:
+
+- Tests, fixtures, and repo tooling stay at the repo root. `validate.py`
+  fails if a `tests/` directory appears inside a skill folder.
+- No symlinks inside a skill folder. APM rejects a bundle containing any
+  symlink, and filters them at deploy time. `validate.py` fails on one.
+- Frontmatter stays ASCII. APM refuses to deploy non-ASCII frontmatter, which
+  would block install for every consumer.
+
+These are errors rather than style nits: each one fails on someone else's
+machine, not yours.
 
 ## Frontmatter contract
 
@@ -51,7 +74,7 @@ it, and degrade to "unknown" rather than guessing when the fetch fails.
 
 **Test the decision logic, not the formatting.** A machine where the skill has
 nothing to do will never exercise the interesting paths, so unit-test them
-against synthetic inputs. `python3 skills/<name>/tests/test-*.py`.
+against synthetic inputs. `python3 tests/<name>/test-*.py`.
 
 **Keep `SKILL.md` under 500 lines.** Push detail into `references/` and let the
 agent load it only when it matters.
@@ -63,6 +86,9 @@ No chains.
 
 ```bash
 ./scripts/validate.py          # frontmatter + layout checks for every skill
+python3 tests/*/test-*.py      # decision logic
+apm audit --file skills/<name>/SKILL.md   # APM's own security scan
+npx skills add . --list        # confirm discovery finds each skill exactly once
 ```
 
 Then run the skill end to end and read its real output. A skill whose script

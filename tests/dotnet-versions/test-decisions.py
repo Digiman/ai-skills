@@ -4,6 +4,10 @@
 The real machine is usually already tidy, so the EOL / delete / BREAKS paths
 would otherwise never run. These tests call the functions directly and check
 the decisions, not the formatting.
+
+Tests live at the repo root rather than inside the skill folder: both `npx
+skills` and `apm install` copy a skill folder whole, so anything under
+skills/<name>/ ships to every consumer.
 """
 
 from __future__ import annotations
@@ -13,7 +17,13 @@ import sys
 import unittest
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "dotnet-versions.py"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SCRIPT = REPO_ROOT / "skills" / "dotnet-versions" / "scripts" / "dotnet-versions.py"
+
+# Loading the script by path makes CPython write __pycache__ next to it, which
+# is inside the skill folder and would then ship to every consumer.
+sys.dont_write_bytecode = True
+
 spec = importlib.util.spec_from_file_location("dotnet_versions", SCRIPT)
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
