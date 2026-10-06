@@ -27,14 +27,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILLS_DIR = REPO_ROOT / "skills"
 MANIFEST = REPO_ROOT / "apm.yml"
 LICENSE_FILE = REPO_ROOT / "LICENSE"
-# Every skill name in this repo starts with this prefix. All skills land in one
-# flat directory per agent (~/.agents/skills), so a generic name like
-# `code-review` silently overwrites an unrelated skill from another author.
-# The spec has no namespace mechanism -- RFC
-# agentskills/agentskills#312 proposed `collection/name` but closed without
-# landing, and `name` still permits only a-z, 0-9 and hyphens -- so the prefix
-# has to be part of the flat name.
-NAME_PREFIX = "digiman-"
 MAX_NAME = 64
 MAX_DESCRIPTION = 1024
 MAX_COMPATIBILITY = 500
@@ -95,11 +87,6 @@ def parse_skill(skill_dir: Path) -> list[str]:
                 problems.append(f"name {fm_name!r} must be lowercase a-z/0-9 with single hyphens")
             if fm_name != name:
                 problems.append(f"name {fm_name!r} does not match directory {name!r}")
-            # Only flag a missing prefix when it is short enough that one fits.
-            if not fm_name.startswith(NAME_PREFIX) and len(NAME_PREFIX) + len(fm_name) <= MAX_NAME:
-                problems.append(
-                    f"name {fm_name!r} is generic and would overwrite an unrelated skill "
-                    f"of the same name. Prefix it: {NAME_PREFIX}{fm_name}")
 
     description = front.get("description")
     if description is not None:
@@ -210,6 +197,182 @@ def check_manifest() -> list[str]:
     return problems
 
 
+# Claude Code plugin / marketplace manifest.
+# https://code.claude.com/docs/en/plugins/manifest-reference
+# https://code.claude.com/docs/en/plugins/marketplace-reference
+PLUGIN_DIR = REPO_ROOT / ".claude-plugin"
+PLUGIN_MANIFEST = PLUGIN_DIR / "plugin.json"
+MARKETPLACE_MANIFEST = PLUGIN_DIR / "marketplace.json"
+# name must be non-empty with no spaces, '@', ':', path separators, or
+# control/bidi characters. kebab-case is the documented recommendation.
+PLUGIN_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+RESERVED_PLUGIN_PREFIXES = ("claude-", "anthropic-", "anthropics-", "cc-plugin-")
+RESERVED_PLUGIN_NAMES = {"claude", "anthropic", "anthropics", "claude-code", "claude-mods"}
+
+
+def _load_json(path: Path, problems: list[str]) -> dict | None:
+    import json
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        problems.append(f"{path.name} is not valid JSON: {exc}")
+        return None
+    if not isinstance(data, dict):
+        problems.append(f"{path.name} must be a JSON object")
+        return None
+    return data
+
+
+def check_plugin_manifests() -> list[str]:
+    """Both are optional, so a missing one is not an error -- a broken one is."""
+    problems: list[str] = []
+    plugin = _load_json(PLUGIN_MANIFEST, problems) if PLUGIN_MANIFEST.is_file() else None
+    market = _load_json(MARKETPLACE_MANIFEST, problems) if MARKETPLACE_MANIFEST.is_file() else None
+
+    if plugin:
+        name = plugin.get("name")
+        if not name or not isinstance(name, str):
+            problems.append("plugin.json is missing required field: name")
+        else:
+            lowered = name.lower()
+            if not PLUGIN_NAME_RE.match(name):
+                problems.append(
+                    f"plugin.json name {name!r} must be non-empty with no spaces, '@', ':', "
+                    f"or path separators; use kebab-case")
+            if lowered.startswith(RESERVED_PLUGIN_PREFIXES):
+                problems.append(f"plugin.json name {name!r} uses an Anthropic-reserved prefix")
+            if lowered in RESERVED_PLUGIN_NAMES:
+                problems.append(f"plugin.json name {name!r} is reserved by Anthropic")
+            if "claude" in lowered.replace("-", "").replace(".", "").split("_") or \
+               re.search(r"(^|[-_.])(claude|anthropic)([-_.]|$)", lowered):
+                problems.append(
+                    f"plugin.json name {name!r} puts 'claude' or 'anthropic' in the name; "
+                    f"that is an Anthropic-reserved pattern")
+        if not plugin.get("description"):
+            problems.append("plugin.json has no description; claude plugin validate warns")
+        author = plugin.get("author")
+        if author is not None:
+            if isinstance(author, str):
+                pass
+            elif isinstance(author, dict):
+                if not author.get("name"):
+                    problems.append("plugin.json author.name is required when author is an object")
+            else:
+                problems.append("plugin.json author must be a string or an object")
+
+    if market:
+        for field in ("name", "owner", "plugins"):
+            if field not in market:
+                problems.append(f"marketplace.json is missing required field: {field}")
+        if "description" not in market and "metadata" not in market:
+            problems.append("marketplace.json has no description; claude plugin validate warns")
+        owner = market.get("owner")
+        if isinstance(owner, dict) and not owner.get("name"):
+            problems.append("marketplace.json owner.name is required")
+        elif owner is not None and not isinstance(owner, dict):
+            problems.append("marketplace.json owner must be an object")
+        entries = market.get("plugins")
+        if not isinstance(entries, list):
+            problems.append("marketplace.json plugins must be an array")
+        else:
+            for i, entry in enumerate(entries):
+                if not isinstance(entry, dict):
+                    problems.append(f"marketplace.json plugins[{i}] must be an object")
+                    continue
+                for field in ("name", "source"):
+                    if not entry.get(field):
+                        problems.append(f"marketplace.json plugins[{i}] is missing {field}")
+                # The docs say to keep the two names the same.
+                if plugin and entry.get("name") and entry["name"] != plugin.get("name"):
+                    problems.append(
+                        f"marketplace.json plugins[{i}].name {entry['name']!r} differs from "
+                        f"plugin.json name {plugin.get('name')!r}; the docs say keep them equal")
+                # A relative source must start with './' unless metadata.pluginRoot is set.
+                src = entry.get("source")
+                if (isinstance(src, str) and not src.startswith((".", "http", "git", "/"))
+                        and not (market.get("metadata") or {}).get("pluginRoot")):
+                    problems.append(
+                        f"marketplace.json plugins[{i}].source {src!r} must start with './' "
+                        f"unless metadata.pluginRoot is set")
+
+    # A `source: "./"` entry disables the default skills/ scan, so `skills` must
+    # then be declared explicitly or the plugin loads with nothing in it.
+    if market and plugin:
+        for i, entry in enumerate(market.get("plugins") or []):
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("source") == "./" and not entry.get("skills"):
+                problems.append(
+                    f"marketplace.json plugins[{i}].source is './', which stops the default "
+                    f"skills/ scan; declare `skills: [\"./skills/\"]` or nothing loads")
+    return problems
+
+
+def check_versions(skill_dirs: list[Path]) -> list[str]:
+    """apm.yml, plugin.json and each SKILL.md metadata.version must agree.
+
+    Three manifests and N skills is exactly the setup where one gets bumped
+    and the others quietly drift, and a consumer then sees two versions.
+    """
+    versions: dict[str, str] = {}
+    try:
+        apm = yaml.safe_load(MANIFEST.read_text(encoding="utf-8")) or {}
+        if isinstance(apm, dict) and isinstance(apm.get("version"), str):
+            versions["apm.yml"] = apm["version"]
+    except (OSError, yaml.YAMLError):
+        pass
+    plugin_problems: list[str] = []
+    if PLUGIN_MANIFEST.is_file():
+        plugin = _load_json(PLUGIN_MANIFEST, plugin_problems)
+        if plugin and isinstance(plugin.get("version"), str):
+            versions["plugin.json"] = plugin["version"]
+
+    for skill_dir in skill_dirs:
+        front = _read_frontmatter(skill_dir / "SKILL.md")
+        if not isinstance(front, dict):
+            continue
+        meta = front.get("metadata")
+        if isinstance(meta, dict) and isinstance(meta.get("version"), str):
+            versions[f"{skill_dir.name}/SKILL.md"] = meta["version"]
+
+    problems = []
+    distinct = set(versions.values())
+    if len(distinct) > 1:
+        detail = ", ".join(f"{k}={v}" for k, v in sorted(versions.items()))
+        problems.append(f"versions disagree: {detail}. Keep apm.yml, plugin.json, "
+                        f"and every SKILL.md metadata.version in step.")
+    return problems
+
+
+def versions_present(skill_dirs: list[Path]) -> bool:
+    """True when there is more than one version field worth cross-checking."""
+    count = 1 if MANIFEST.is_file() else 0
+    count += 1 if PLUGIN_MANIFEST.is_file() else 0
+    for skill_dir in skill_dirs:
+        front = _read_frontmatter(skill_dir / "SKILL.md")
+        if isinstance(front, dict) and isinstance(front.get("metadata"), dict) \
+                and "version" in front["metadata"]:
+            count += 1
+    return count > 1
+
+
+def _read_frontmatter(skill_md: Path) -> dict | None:
+    try:
+        text = skill_md.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    if not text.startswith("---"):
+        return None
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return None
+    try:
+        data = yaml.safe_load(parts[1])
+    except yaml.YAMLError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def main() -> int:
     if not SKILLS_DIR.is_dir():
         print(f"no skills/ directory at {REPO_ROOT}", file=sys.stderr)
@@ -221,6 +384,15 @@ def main() -> int:
         failed = True
     if MANIFEST.is_file() and not check_manifest():
         print("ok    apm.yml")
+
+    plugin_problems = check_plugin_manifests()
+    if plugin_problems:
+        failed = True
+        print("FAIL  .claude-plugin")
+        for problem in plugin_problems:
+            print(f"        {problem}")
+    elif PLUGIN_MANIFEST.is_file() or MARKETPLACE_MANIFEST.is_file():
+        print("ok    .claude-plugin")
 
     skill_dirs = sorted(d for d in SKILLS_DIR.iterdir() if d.is_dir())
     if not skill_dirs:
@@ -236,6 +408,15 @@ def main() -> int:
                 print(f"        {problem}")
         else:
             print(f"ok    {skill_dir.name}")
+
+    version_problems = check_versions(skill_dirs)
+    if version_problems:
+        failed = True
+        print("FAIL  versions")
+        for problem in version_problems:
+            print(f"        {problem}")
+    elif versions_present(skill_dirs):
+        print("ok    versions")
 
     return 1 if failed else 0
 

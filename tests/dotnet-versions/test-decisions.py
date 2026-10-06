@@ -18,7 +18,7 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = REPO_ROOT / "skills" / "digiman-dotnet-versions" / "scripts" / "dotnet-versions.py"
+SCRIPT = REPO_ROOT / "skills" / "dotnet-versions" / "scripts" / "dotnet-versions.py"
 
 # Loading the script by path makes CPython write __pycache__ next to it, which
 # is inside the skill folder and would then ship to every consumer.

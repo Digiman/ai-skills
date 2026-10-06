@@ -1,0 +1,12 @@
+{
+  "name": "ai-skills",
+  "description": "Custom Agent Skills for .NET and other developer workflows",
+  "version": "0.1.0",
+  "author": {
+    "name": "Andrey Kukharenko"
+  },
+  "homepage": "https://github.com/digiman/ai-skills",
+  "repository": "https://github.com/digiman/ai-skills",
+  "license": "MIT",
+  "keywords": ["dotnet", "sdk", "skills"]
+}

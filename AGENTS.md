@@ -14,9 +14,7 @@ directory per skill under `skills/`, distributed with either the `skills` CLI
 - `tests/<name>/test-*.py` — tests for the decision logic. Repo root, not in
   the skill: see "What ships" below.
 - `scripts/install.sh` — links each skill into `~/.agents/skills`.
-- `scripts/validate.py` — spec and packaging checks.
-- `apm.yml` — the APM manifest. Keep its `version` in step with
-  `metadata.version` in each `SKILL.md`.
+- `scripts/validate.py` — spec, packaging, and manifest checks.
 
 Do not create `.agents/skills/` here. `npx skills` scans both `skills/` and
 `.agents/skills/`, so a symlink between them doubles the discovery surface,
@@ -61,22 +59,41 @@ Every skill from every source installs into one flat directory per agent
 `code-review` over an unrelated one replaced it with no prompt and no warning.
 APM is safer — it refuses and asks for `--force` — but neither tool prevents it.
 
-So every skill in this repo is named `digiman-<thing>`. `dotnet-versions`
-became `digiman-dotnet-versions`. The directory name and the `name:` field both
-carry the prefix, since the directory name *is* the install target.
+**This repo's answer is the Claude plugin path, not a name prefix.** Skill
+names stay plain (`dotnet-versions`), and the repo carries the identity
+(`digiman/ai-skills`). Plugin skills are namespaced as
+`/ai-skills:dotnet-versions` and live in the plugin cache rather than
+`~/.claude/skills/`, so they cannot collide with a flat install at all.
 
 The spec has no namespace mechanism. RFC
 [agentskills#312](https://github.com/agentskills/agentskills/issues/312)
 proposed `collection/skill-name`, closed without landing, and `name` still
-permits only `a-z`, `0-9` and hyphens. Prefixing with hyphens is the convention
-that stays inside the spec — the same one
-[zapier/agent-skills](https://github.com/zapier/agent-skills/blob/main/AGENTS.md)
-uses.
+permits only `a-z`, `0-9` and hyphens. The plugin namespace is a Claude Code
+convention layered on top, not a spec feature — so on the `npx skills` and APM
+paths there is nothing protecting a generic name. If you add a skill whose name
+is common (`code-review`, `tdd`, `research`), say so in its PR; renaming later
+is a breaking change for anyone who installed the old name.
 
-`validate.py` fails a skill whose name is not prefixed.
+## Three manifests, one skill tree
 
-**Renaming is a breaking change.** Anyone who installed the old name keeps a
-stale directory that nothing will overwrite or clean up.
+`skills/<name>/SKILL.md` is the only thing that must exist. The manifests are
+thin wrappers over the same tree, and each needs a different piece of metadata:
+
+- `apm.yml` — APM package identity. Only `name` and `version` are required.
+- `.claude-plugin/plugin.json` — Claude Code plugin. Only `name` is required.
+- `.claude-plugin/marketplace.json` — the marketplace index, required for
+  `/plugin marketplace add` to work.
+
+Two traps `validate.py` guards:
+
+- A marketplace entry with `source: "./"` **disables** the default `skills/`
+  scan, so it must declare `skills: ["./skills/"]` or the plugin loads empty.
+- `plugin.json` `name` must not start with `claude-`, `anthropic-`,
+  `anthropics-`, or `cc-plugin-`, and must not be one of Anthropic's own
+  reserved names.
+
+Keep `version` in step across `apm.yml` and `.claude-plugin/plugin.json`, and
+`metadata.version` in each `SKILL.md`.
 
 ## House rules
 
@@ -113,11 +130,15 @@ No chains.
 ## Verifying a change
 
 ```bash
-./scripts/validate.py          # frontmatter + layout checks for every skill
+./scripts/validate.py          # frontmatter, layout, manifests
 python3 tests/*/test-*.py      # decision logic
 apm audit --file skills/<name>/SKILL.md   # APM's own security scan
 npx skills add . --list        # confirm discovery finds each skill exactly once
 ```
+
+`validate.py` covers the `.claude-plugin` manifests, so a broken manifest fails
+here rather than in `claude plugin validate`. Claude Code is not required for
+that.
 
 Then run the skill end to end and read its real output. A skill whose script
 crashes is worse than no skill, because the agent trusts the description and

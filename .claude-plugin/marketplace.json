@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "digiman",
+  "description": "Custom Agent Skills maintained by Andrey Kukharenko",
+  "owner": {
+    "name": "Andrey Kukharenko"
+  },
+  "plugins": [
+    {
+      "name": "ai-skills",
+      "source": "./",
+      "description": "Custom Agent Skills for .NET and other developer workflows",
+      "category": "development",
+      "skills": ["./skills/"]
+    }
+  ]
+}
