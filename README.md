@@ -7,22 +7,28 @@ and 75+ others.
 Built on the standard, so the same repo installs with **three** tools. Nothing
 is duplicated: every one of them reads `skills/<name>/SKILL.md` directly.
 
-| Tool | Command |
-| ---- | ------- |
-| skills CLI | `npx skills add digiman/ai-skills` |
-| APM | `apm install digiman/ai-skills` |
-| Claude Code plugin | `/plugin marketplace add digiman/ai-skills` then `/plugin install ai-skills@digiman` |
+| Tool | Command | Installs as |
+| ---- | ------- | ----------- |
+| skills CLI | `npx skills add Digiman/ai-skills` | `dotnet-versions` |
+| APM | `apm install Digiman/ai-skills` | `dotnet-versions` |
+| Claude Code plugin | `/plugin marketplace add Digiman/ai-skills` | `/digiman-skills:dotnet-versions` |
+
+**Two names, on purpose.** The repo is `Digiman/ai-skills`. The *collection* it
+publishes is `digiman-skills`. The repo path says where the code lives; the
+collection name says who owns the set of skills and what they are called as a
+unit. It also keeps the install identifier distinctive — `ai-skills` is a name
+many repos on skills.sh already use.
 
 ## Install
 
 ### Claude Code, as a plugin
 
 ```text
-/plugin marketplace add digiman/ai-skills
-/plugin install ai-skills@digiman
+/plugin marketplace add Digiman/ai-skills
+/plugin install digiman-skills@digiman
 ```
 
-Skills arrive as `/ai-skills:dotnet-versions`, and Claude Code keeps them in
+Skills arrive as `/digiman-skills:dotnet-versions`, and Claude Code keeps them in
 its plugin cache rather than copying them into `~/.claude/skills/`. That is the
 one install path where a generic skill name cannot overwrite an unrelated skill
 from another author — see [Skill names](#skill-names).
@@ -33,10 +39,13 @@ a clone of this repo.
 ### With the skills CLI
 
 ```bash
-npx skills add digiman/ai-skills                    # every skill, detected agents
-npx skills add digiman/ai-skills --skill dotnet-versions -a claude-code -a opencode
-npx skills add digiman/ai-skills --list             # preview without installing
+npx skills add Digiman/ai-skills                    # every skill, detected agents
+npx skills add Digiman/ai-skills --skill dotnet-versions -a claude-code -a opencode
+npx skills add Digiman/ai-skills --list             # preview without installing
 ```
+
+Also publishes to [skills.sh](https://skills.sh/Digiman/ai-skills) via
+anonymous install telemetry.
 
 ### With APM
 
@@ -45,10 +54,10 @@ Add to the consuming project's `apm.yml`:
 ```yaml
 dependencies:
   apm:
-    - digiman/ai-skills
+    - Digiman/ai-skills
     # pin it, or pick a subset:
-    # - digiman/ai-skills#v0.1.0
-    # - git: digiman/ai-skills
+    # - Digiman/ai-skills#v0.1.0
+    # - git: Digiman/ai-skills
     #   skills: [dotnet-versions]
 ```
 
@@ -64,7 +73,7 @@ offline bundle or a Claude plugin artifact, `apm pack --archive`.
 Nothing is machine-specific, so a fresh machine needs one command:
 
 ```bash
-npx skills add digiman/ai-skills -g        # or: apm install digiman/ai-skills
+npx skills add Digiman/ai-skills -g       # or: apm install Digiman/ai-skills
 ```
 
 `-g` installs for the current user (`~/.agents/skills/`); drop it to install
@@ -74,7 +83,7 @@ build step and no registry.
 To link from a local clone instead — useful while authoring:
 
 ```bash
-git clone https://github.com/digiman/ai-skills && cd ai-skills
+git clone git@github.com:Digiman/ai-skills.git && cd ai-skills
 ./scripts/install.sh                       # symlinks into ~/.agents/skills and ~/.claude/skills
 ```
 
@@ -88,9 +97,9 @@ skills/<name>/SKILL.md        # the standard: one directory per skill
 tests/<name>/test-*.py        # decision-logic tests -- repo root on purpose
 scripts/install.sh            # link skills into ~/.agents/skills
 scripts/validate.py           # spec + packaging checks for every skill
-apm.yml                       # APM manifest
-.claude-plugin/plugin.json    # Claude Code plugin manifest
-.claude-plugin/marketplace.json  # Claude Code marketplace index
+apm.yml                       # APM manifest -- package name digiman-skills
+.claude-plugin/plugin.json    # Claude Code plugin manifest -- name digiman-skills
+.claude-plugin/marketplace.json  # marketplace index -- marketplace name digiman
 .agents/skills/               # NOT used -- see below
 ```
 
@@ -105,7 +114,7 @@ skills install into a single flat directory per agent, so two authors shipping
 `npx skills` overwrote an unrelated `code-review` with no prompt and no
 warning; APM refused and required `--force`. Installing as a Claude plugin
 avoids this entirely, because plugin skills are namespaced
-(`/ai-skills:dotnet-versions`) and live in the plugin cache.
+(`/digiman-skills:dotnet-versions`) and live in the plugin cache.
 
 If you ever add a skill whose name is common (`code-review`, `tdd`, `research`,
 `implement`), either rely on the plugin install path or expect to rename it

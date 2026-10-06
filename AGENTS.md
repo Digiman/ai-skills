@@ -1,9 +1,15 @@
 # Working on this repo
 
 Repo of custom [Agent Skills](https://agentskills.io/specification). One
-directory per skill under `skills/`, distributed with either the `skills` CLI
-(`npx skills add owner/repo`) or [APM](https://microsoft.github.io/apm/)
-(`apm install owner/repo`).
+directory per skill under `skills/`, distributed three ways: the `skills` CLI
+(`npx skills add Digiman/ai-skills`), [APM](https://microsoft.github.io/apm/)
+(`apm install Digiman/ai-skills`), and as a Claude Code plugin
+(`/plugin install digiman-skills@digiman`).
+
+Two distinct identities, deliberately: the **repo** is `Digiman/ai-skills`, and
+the **collection** the manifests publish is `digiman-skills`. Do not collapse
+them. `Digiman/ai-skills` is the source path; `digiman-skills` is the install
+identifier and the namespace plugin skills appear under.
 
 ## Layout
 
@@ -60,9 +66,9 @@ Every skill from every source installs into one flat directory per agent
 APM is safer — it refuses and asks for `--force` — but neither tool prevents it.
 
 **This repo's answer is the Claude plugin path, not a name prefix.** Skill
-names stay plain (`dotnet-versions`), and the repo carries the identity
-(`digiman/ai-skills`). Plugin skills are namespaced as
-`/ai-skills:dotnet-versions` and live in the plugin cache rather than
+names stay plain (`dotnet-versions`), and the collection carries the identity
+(`digiman-skills`). Plugin skills are namespaced as
+`/digiman-skills:dotnet-versions` and live in the plugin cache rather than
 `~/.claude/skills/`, so they cannot collide with a flat install at all.
 
 The spec has no namespace mechanism. RFC
@@ -83,6 +89,10 @@ thin wrappers over the same tree, and each needs a different piece of metadata:
 - `.claude-plugin/plugin.json` — Claude Code plugin. Only `name` is required.
 - `.claude-plugin/marketplace.json` — the marketplace index, required for
   `/plugin marketplace add` to work.
+
+Set `name: digiman-skills` in the first two and `name: digiman` in the
+marketplace, so the commands read `/plugin marketplace add Digiman/ai-skills`
+then `/plugin install digiman-skills@digiman`.
 
 Two traps `validate.py` guards:
 

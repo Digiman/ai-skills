@@ -7,7 +7,7 @@
   },
   "plugins": [
     {
-      "name": "ai-skills",
+      "name": "digiman-skills",
       "source": "./",
       "description": "Custom Agent Skills for .NET and other developer workflows",
       "category": "development",
