@@ -13,7 +13,7 @@ With the `skills` CLI (npm), which also publishes to [skills.sh](https://skills.
 
 ```bash
 npx skills add digiman/ai-skills                    # every skill, detected agents
-npx skills add digiman/ai-skills --skill dotnet-versions -a claude-code -a opencode
+npx skills add digiman/ai-skills --skill digiman-dotnet-versions -a claude-code -a opencode
 npx skills add digiman/ai-skills --list             # preview without installing
 ```
 
@@ -27,7 +27,7 @@ dependencies:
     # pin it, or pick a subset:
     # - digiman/ai-skills#v0.1.0
     # - git: digiman/ai-skills
-    #   skills: [dotnet-versions]
+    #   skills: [digiman-dotnet-versions]
 ```
 
 ```bash
@@ -37,10 +37,23 @@ apm install
 Both resolve straight from git — no registry, no build step. To produce an
 offline bundle or a Claude plugin artifact, `apm pack --archive`.
 
-To link the skills into your own machine without either CLI:
+### On another machine
+
+Nothing is machine-specific, so a fresh machine needs one command:
 
 ```bash
-./scripts/install.sh          # symlinks into ~/.agents/skills and ~/.claude/skills
+npx skills add digiman/ai-skills -g        # or: apm install digiman/ai-skills
+```
+
+`-g` installs for the current user (`~/.agents/skills/`); drop it to install
+into the project instead. Both tools read straight from git, so there is no
+build step and no registry.
+
+To link from a local clone instead — useful while authoring:
+
+```bash
+git clone https://github.com/digiman/ai-skills && cd ai-skills
+./scripts/install.sh                       # symlinks into ~/.agents/skills and ~/.claude/skills
 ```
 
 ## Layout
@@ -56,6 +69,12 @@ scripts/validate.py           # spec + packaging checks for every skill
 apm.yml                       # APM manifest
 .agents/skills/               # NOT used -- see below
 ```
+
+**Skill names are prefixed.** Every skill here is `digiman-<thing>`. All
+skills from every source install into one flat directory per agent, so a
+generic name like `code-review` would overwrite an unrelated skill from another
+author — `npx skills` does that silently, APM refuses without `--force`. The
+spec has no namespace mechanism, so the prefix is part of the flat name.
 
 **Two deliberate choices.** There is no `.agents/skills` directory in this repo.
 `npx skills` scans both `skills/` and `.agents/skills/`, so a symlink between
@@ -85,7 +104,7 @@ before writing one.
 
 | Skill | What it does |
 | ----- | ------------ |
-| [dotnet-versions](skills/dotnet-versions) | Audits installed .NET SDKs/runtimes against Microsoft's release index for support status and EOL, decides what to keep, checks `global.json` pins, and prints `sudo` commands for you to run. Never removes anything itself. |
+| [digiman-dotnet-versions](skills/digiman-dotnet-versions) | Audits installed .NET SDKs/runtimes against Microsoft's release index for support status and EOL, decides what to keep, checks `global.json` pins, and prints `sudo` commands for you to run. Never removes anything itself. |
 
 ## Verifying a change
 

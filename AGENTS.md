@@ -43,12 +43,40 @@ machine, not yours.
 `name` and `description` are required. Everything else is optional.
 
 - `name` — 1-64 chars, `a-z` `0-9` and hyphens, no leading, trailing, or
-  consecutive hyphens. Must equal the directory name.
+  consecutive hyphens. Must equal the directory name. Must start with
+  `digiman-`. See "Names are the install identity".
 - `description` — 1-1024 chars. Carries the entire burden of triggering, so
   name the trigger conditions and the keywords a user would actually type, not
   just the capability.
 - `compatibility` — only when the skill has real environment requirements.
 - `metadata` — string-to-string map. Keep a `version` here.
+
+## Names are the install identity
+
+Every skill from every source installs into one flat directory per agent
+(`~/.agents/skills/<name>/`). There is no scoping. Two authors who both ship a
+`code-review` cannot coexist — the second install wins.
+
+`npx skills` overwrites silently. I confirmed this: installing a
+`code-review` over an unrelated one replaced it with no prompt and no warning.
+APM is safer — it refuses and asks for `--force` — but neither tool prevents it.
+
+So every skill in this repo is named `digiman-<thing>`. `dotnet-versions`
+became `digiman-dotnet-versions`. The directory name and the `name:` field both
+carry the prefix, since the directory name *is* the install target.
+
+The spec has no namespace mechanism. RFC
+[agentskills#312](https://github.com/agentskills/agentskills/issues/312)
+proposed `collection/skill-name`, closed without landing, and `name` still
+permits only `a-z`, `0-9` and hyphens. Prefixing with hyphens is the convention
+that stays inside the spec — the same one
+[zapier/agent-skills](https://github.com/zapier/agent-skills/blob/main/AGENTS.md)
+uses.
+
+`validate.py` fails a skill whose name is not prefixed.
+
+**Renaming is a breaking change.** Anyone who installed the old name keeps a
+stale directory that nothing will overwrite or clean up.
 
 ## House rules
 

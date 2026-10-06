@@ -27,6 +27,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILLS_DIR = REPO_ROOT / "skills"
 MANIFEST = REPO_ROOT / "apm.yml"
 LICENSE_FILE = REPO_ROOT / "LICENSE"
+# Every skill name in this repo starts with this prefix. All skills land in one
+# flat directory per agent (~/.agents/skills), so a generic name like
+# `code-review` silently overwrites an unrelated skill from another author.
+# The spec has no namespace mechanism -- RFC
+# agentskills/agentskills#312 proposed `collection/name` but closed without
+# landing, and `name` still permits only a-z, 0-9 and hyphens -- so the prefix
+# has to be part of the flat name.
+NAME_PREFIX = "digiman-"
 MAX_NAME = 64
 MAX_DESCRIPTION = 1024
 MAX_COMPATIBILITY = 500
@@ -87,6 +95,11 @@ def parse_skill(skill_dir: Path) -> list[str]:
                 problems.append(f"name {fm_name!r} must be lowercase a-z/0-9 with single hyphens")
             if fm_name != name:
                 problems.append(f"name {fm_name!r} does not match directory {name!r}")
+            # Only flag a missing prefix when it is short enough that one fits.
+            if not fm_name.startswith(NAME_PREFIX) and len(NAME_PREFIX) + len(fm_name) <= MAX_NAME:
+                problems.append(
+                    f"name {fm_name!r} is generic and would overwrite an unrelated skill "
+                    f"of the same name. Prefix it: {NAME_PREFIX}{fm_name}")
 
     description = front.get("description")
     if description is not None:

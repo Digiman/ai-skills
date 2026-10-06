@@ -1,5 +1,5 @@
 ---
-name: dotnet-versions
+name: digiman-dotnet-versions
 description: Use when the user asks to clean up, prune, or update installed .NET / dotnet SDKs and runtimes, or mentions dotnet uninstall, dotnet-core-uninstall, unsupported or out-of-support .NET versions, which .NET versions are still supported, old .NET versions taking disk space, or "which dotnet versions can I remove". Inventories installed SDKs/runtimes, checks each against Microsoft's published release index for support status and end-of-life, applies a keep-the-latest-per-band policy, checks global.json pins, and prints sudo commands for the user to run manually. Never removes anything itself.
 compatibility: macOS on Apple silicon; requires the dotnet CLI on PATH and network access for the support check (falls back to a cache, then to "unknown"). Downloads dotnet-core-uninstall to ~/dotnet-core-uninstall on first run.
 license: MIT
@@ -161,5 +161,5 @@ rather than here, because this whole folder is what gets installed into a
 consumer's harness:
 
 ```bash
-python3 tests/dotnet-versions/test-decisions.py
+python3 tests/digiman-dotnet-versions/test-decisions.py
 ```
