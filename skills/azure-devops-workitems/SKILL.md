@@ -59,6 +59,9 @@ uses `#<id>`, which links in Azure Repos. For a GitHub repo wired to ADO, use
 
 ## Configuration
 
+First-time setup (PAT scopes, config file, verification, multiple orgs):
+`references/setup.md`. Point the user there if `--check` fails.
+
 The script reads `ADO_ORG`, `ADO_PROJECT`, `ADO_PAT` from the environment, then
 from the file named by `ADO_CONFIG`, then `~/.config/ado.env` (`KEY=value`
 lines). With no PAT it falls back to `az login`. For a second organization use
