@@ -112,5 +112,24 @@ class MineAndTreeTests(unittest.TestCase):
         self.assertEqual(out.splitlines()[2], "    #3 [T] T (New)  <-- here")
 
 
+class FieldTests(unittest.TestCase):
+    F = {"System.Title": "T", "Microsoft.VSTS.Common.Priority": 2, "System.AssignedTo": {"displayName": "Ann"}}
+
+    def test_short_names_resolve_case_insensitively(self):
+        self.assertEqual(ado.resolve_field(self.F, "priority"), "Microsoft.VSTS.Common.Priority")
+        self.assertEqual(ado.resolve_field(self.F, "System.Title"), "System.Title")
+        self.assertIsNone(ado.resolve_field(self.F, "Nope"))
+
+    def test_render_fields(self):
+        out = ado.render_fields({"id": 1, "fields": self.F}, ["Priority", "AssignedTo", "Nope"])
+        self.assertIn("Microsoft.VSTS.Common.Priority: 2", out)
+        self.assertIn("System.AssignedTo: Ann", out)
+        self.assertIn("Nope: (not set or unknown field)", out)
+
+    def test_all_skips_empty(self):
+        out = ado.render_fields({"id": 1, "fields": {**self.F, "X.Empty": ""}}, ["all"])
+        self.assertNotIn("X.Empty", out)
+
+
 if __name__ == "__main__":
     unittest.main()

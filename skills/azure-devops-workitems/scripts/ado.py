@@ -3,6 +3,7 @@
 
 Usage:
   ado.py <id|work-item-url> [--links] [--children] [--no-comments] [--profile NAME]
+  ado.py <id> --fields Priority,AreaPath  # only these fields (short or full names); "all" lists every non-empty one
   ado.py <id> --prs                       # linked PRs, commits, branches (resolved)
   ado.py <id> --tree                      # whole hierarchy, titles only, this item marked
   ado.py <id> --branch [--prefix feature] # suggested branch name + PR title/body
@@ -207,6 +208,34 @@ def describe_artifact(client: "Client", art: dict) -> str:
         return f"{art['kind']} {art.get('id', art.get('url'))} (unresolved: {e})"
 
 
+def resolve_field(fields: dict, name: str) -> str | None:
+    """Map a short name (Priority) to a full reference name, case-insensitively."""
+    lower = {k.lower(): k for k in fields}
+    for cand in (name, f"System.{name}", f"Microsoft.VSTS.Common.{name}", f"Microsoft.VSTS.Scheduling.{name}"):
+        if cand.lower() in lower:
+            return lower[cand.lower()]
+    hits = [k for k in fields if k.lower().endswith("." + name.lower())]
+    return hits[0] if len(hits) == 1 else None
+
+
+def render_fields(item: dict, names: list[str]) -> str:
+    f = item["fields"]
+    if names == ["all"]:
+        wanted = sorted(k for k, v in f.items() if v not in (None, ""))
+    else:
+        wanted = [resolve_field(f, n) or n for n in names]
+    lines = [f"#{item['id']} {f.get('System.Title')}"]
+    for key in wanted:
+        v = f.get(key)
+        if isinstance(v, dict):
+            v = v.get("displayName") or v.get("name") or json.dumps(v)
+        text = clean(v) if isinstance(v, str) else str(v)
+        if names == ["all"] and len(text) > 120:
+            text = text[:120] + "..."
+        lines.append(f"{key}: {text if v is not None else '(not set or unknown field)'}")
+    return "\n".join(lines)
+
+
 def slugify(title: str, limit: int = 50) -> str:
     """Branch-safe slug: drops leading [TAG] prefixes, ascii-only, cut on a word boundary."""
     title = re.sub(r"^(\s*\[[^\]]*\])+\s*", "", title)
@@ -321,6 +350,7 @@ def main(argv=None) -> int:
     p.add_argument("--links", action="store_true", help="show parent/children/related with titles")
     p.add_argument("--children", action="store_true", help="also print each child item in full")
     p.add_argument("--no-comments", action="store_true")
+    p.add_argument("--fields", help="comma-separated field names, or 'all'")
     p.add_argument("--prs", action="store_true", help="linked PRs, commits, branches")
     p.add_argument("--tree", action="store_true", help="full hierarchy as titles only")
     p.add_argument("--branch", action="store_true", help="suggest branch name and PR title/body")
@@ -368,6 +398,9 @@ def main(argv=None) -> int:
             print(render_tree(items, children, root, wid))
             return 0
         item = client.item(wid)
+        if args.fields:
+            print(render_fields(item, [n.strip() for n in args.fields.split(",") if n.strip()]))
+            return 0
         if args.branch:
             for k, v in suggest_branch(item, args.prefix).items():
                 print(f"{k}: {v}")

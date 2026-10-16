@@ -25,6 +25,8 @@ python3 scripts/ado.py 1234 --links         # + parent/children/related with tit
 python3 scripts/ado.py 1234 --children      # + each child printed in full
 python3 scripts/ado.py 1234 --no-comments
 python3 scripts/ado.py --query "SELECT [System.Id] FROM WorkItems WHERE [System.IterationPath] = @CurrentIteration AND [System.AssignedTo] = @Me" --top 20
+python3 scripts/ado.py 1234 --fields Priority,AreaPath,StoryPoints  # only these (short or full names)
+python3 scripts/ado.py 1234 --fields all    # discover available field names (long values truncated)
 python3 scripts/ado.py 1234 --prs           # linked PRs, commits, branches (resolved)
 python3 scripts/ado.py 1234 --tree          # epic > feature > story > task, titles only
 python3 scripts/ado.py 1234 --branch        # suggested branch name + PR title/body
@@ -50,8 +52,10 @@ uses `#<id>`, which links in Azure Repos. For a GitHub repo wired to ADO, use
    every child in full.
 3. For "what's in the sprint", use `--query` (titles only), then fetch the one
    or two items that matter.
-4. `--tree` for "where does this fit"; it is titles only and cheap.
-5. Do not re-fetch an item already read this session.
+4. `--fields` returns only what you name; use `all` once to discover custom
+   field names, then ask for those. An empty field is simply absent.
+5. `--tree` for "where does this fit"; it is titles only and cheap.
+6. Do not re-fetch an item already read this session.
 
 ## Configuration
 
