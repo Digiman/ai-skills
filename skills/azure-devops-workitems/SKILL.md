@@ -4,7 +4,7 @@ description: Use when the user references an Azure DevOps (ADO) work item, story
 compatibility: Requires python3 (stdlib only) and network access to dev.azure.com. Auth via a PAT with Work Items (Read) scope in ADO_PAT, or an existing `az login` session.
 license: MIT
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # Azure DevOps work items
