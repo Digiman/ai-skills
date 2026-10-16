@@ -68,5 +68,49 @@ class RenderTests(unittest.TestCase):
         self.assertEqual((m[1], m[2], m[3]), ("Org", "My%20Proj", "42"))
 
 
+class ArtifactTests(unittest.TestCase):
+    def test_azure_repos_pr(self):
+        rel = {"rel": "ArtifactLink", "url": "vstfs:///Git/PullRequestId/p%2Fr%2F12", "attributes": {"name": "Pull Request"}}
+        self.assertEqual(ado.parse_artifact(rel), {"kind": "pr", "project": "p", "repo": "r", "id": "12"})
+
+    def test_commit_branch_github_and_other(self):
+        self.assertEqual(ado.parse_artifact({"rel": "ArtifactLink", "url": "vstfs:///Git/Commit/p%2Fr%2Fabc"})["kind"], "commit")
+        self.assertEqual(ado.parse_artifact({"rel": "ArtifactLink", "url": "vstfs:///Git/Ref/p%2Fr%2FGBmain"})["id"], "GBmain")
+        gh = {"rel": "ArtifactLink", "url": "https://github.com/o/r/pull/3", "attributes": {"name": "GitHub Pull Request"}}
+        self.assertEqual(ado.parse_artifact(gh)["kind"], "github")
+        self.assertIsNone(ado.parse_artifact({"rel": "Hyperlink", "url": "https://x"}))
+        self.assertIsNone(ado.parse_artifact({"rel": "ArtifactLink", "url": "vstfs:///Build/Build/1"}))
+
+
+class BranchTests(unittest.TestCase):
+    def item(self, wtype, title):
+        return {"id": 9, "fields": {"System.WorkItemType": wtype, "System.Title": title}}
+
+    def test_strips_tag_prefixes_and_prefixes_by_type(self):
+        self.assertEqual(ado.suggest_branch(self.item("Task", "[BE] Add imported flag"))["branch"], "feature/9-add-imported-flag")
+        self.assertEqual(ado.suggest_branch(self.item("Bug", "Crash on save!"))["branch"], "bugfix/9-crash-on-save")
+        self.assertEqual(ado.suggest_branch(self.item("Bug", "x"), "hotfix")["branch"], "hotfix/9-x")
+
+    def test_slug_limit_ascii_and_empty(self):
+        self.assertLessEqual(len(ado.slugify("word " * 40)), 50)
+        self.assertEqual(ado.slugify("Caf\u00e9 r\u00e9sum\u00e9"), "cafe-resume")
+        self.assertEqual(ado.slugify("[X] !!!"), "work-item")
+
+    def test_pr_title_has_no_tag_prefix(self):
+        self.assertEqual(ado.suggest_branch(self.item("Task", "[FE] Show badge"))["pr_title"], "Show badge (#9)")
+
+
+class MineAndTreeTests(unittest.TestCase):
+    def test_wiql_sprint_toggle(self):
+        self.assertIn("@Me", ado.mine_wiql(False))
+        self.assertNotIn("@CurrentIteration", ado.mine_wiql(False))
+        self.assertIn("@CurrentIteration", ado.mine_wiql(True))
+
+    def test_render_tree_marks_current_and_indents(self):
+        mk = lambda t: {"fields": {"System.WorkItemType": t, "System.Title": t, "System.State": "New"}}
+        out = ado.render_tree({1: mk("E"), 2: mk("S"), 3: mk("T")}, {1: [2], 2: [3]}, 1, 3)
+        self.assertEqual(out.splitlines()[2], "    #3 [T] T (New)  <-- here")
+
+
 if __name__ == "__main__":
     unittest.main()

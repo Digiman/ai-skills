@@ -3,6 +3,10 @@
 
 Usage:
   ado.py <id|work-item-url> [--links] [--children] [--no-comments] [--profile NAME]
+  ado.py <id> --prs                       # linked PRs, commits, branches (resolved)
+  ado.py <id> --tree                      # whole hierarchy, titles only, this item marked
+  ado.py <id> --branch [--prefix feature] # suggested branch name + PR title/body
+  ado.py --mine [--sprint]                # my open items (optionally current sprint)
   ado.py --query "<WIQL>" [--top N]      # list ids + titles only
   ado.py --check                          # verify config/auth without fetching
 
@@ -23,6 +27,7 @@ import json
 import os
 import re
 import subprocess
+import unicodedata
 import sys
 import urllib.error
 import urllib.parse
@@ -107,7 +112,8 @@ class Client:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 return json.loads(resp.read().decode() or "{}")
         except urllib.error.HTTPError as e:
-            hint = {401: "token rejected or expired", 403: "token lacks Work Items (Read) scope",
+            git = "/_apis/git/" in req.full_url
+            hint = {401: "token rejected, expired, or lacks Code (Read) scope" if git else "token rejected or expired", 403: "token lacks Work Items (Read) scope",
                     404: "item, project or org not found (check ADO_ORG/ADO_PROJECT)"}.get(e.code, "")
             raise AdoError(f"HTTP {e.code} for {req.full_url.split('?')[0]}: {hint}".rstrip(": "))
         except urllib.error.URLError as e:
@@ -121,6 +127,17 @@ class Client:
         req = urllib.request.Request(f"{self.base}/wit/wiql?$top={top}&api-version={API}", data=body, method="POST")
         req.add_header("Content-Type", "application/json")
         return self._send(req)
+
+    def get_in(self, project: str, path: str):
+        root = self.base.rsplit("/", 2)[0]
+        return self._send(urllib.request.Request(f"{root}/{project}/_apis/{path}"))
+
+    def items(self, ids: list[int]) -> list[dict]:
+        out: list[dict] = []
+        for i in range(0, len(ids), 200):
+            chunk = ",".join(map(str, ids[i:i + 200]))
+            out += self.get(f"wit/workitems?ids={chunk}&$expand=relations&api-version={API}").get("value", [])
+        return out
 
     def item(self, wid: int):
         return self.get(f"wit/workitems/{wid}?$expand=relations&api-version={API}")
@@ -146,6 +163,127 @@ def relation_ids(item: dict) -> dict[str, list[int]]:
         if kind and "/workItems/" in rel["url"]:
             out[kind].append(int(rel["url"].rsplit("/", 1)[1]))
     return out
+
+
+ARTIFACT_RE = re.compile(r"^vstfs:///Git/(PullRequestId|Commit|Ref)/([^/]+)$")
+
+
+def parse_artifact(rel: dict) -> dict | None:
+    """Classify an ArtifactLink as an Azure Repos PR/commit/branch or a GitHub link."""
+    if rel.get("rel") != "ArtifactLink":
+        return None
+    url = rel.get("url", "")
+    name = (rel.get("attributes") or {}).get("name", "")
+    m = ARTIFACT_RE.match(url)
+    if m:
+        parts = urllib.parse.unquote(m[2]).split("/")
+        if len(parts) == 3:
+            kind = {"PullRequestId": "pr", "Commit": "commit", "Ref": "branch"}[m[1]]
+            return {"kind": kind, "project": parts[0], "repo": parts[1], "id": parts[2]}
+    if url.startswith("https://github.com/"):
+        return {"kind": "github", "name": name, "url": url}
+    return None
+
+
+def describe_artifact(client: "Client", art: dict) -> str:
+    """One line per link; degrades to the raw id if the lookup fails."""
+    try:
+        if art["kind"] == "github":
+            return f"{art['name'] or 'GitHub'}: {art['url']}"
+        base = f"git/repositories/{art['repo']}"
+        if art["kind"] == "pr":
+            d = client.get_in(art["project"], f"{base}/pullRequests/{art['id']}?api-version={API}")
+            src = d.get("sourceRefName", "").removeprefix("refs/heads/")
+            dst = d.get("targetRefName", "").removeprefix("refs/heads/")
+            return (f"PR !{d['pullRequestId']} [{d.get('status')}] {d['repository']['name']}: {d.get('title')} "
+                    f"({src} -> {dst}, by {d['createdBy']['displayName']})")
+        if art["kind"] == "commit":
+            d = client.get_in(art["project"], f"{base}/commits/{art['id']}?api-version={API}")
+            first = (d.get("comment") or "").splitlines()[0] if d.get("comment") else ""
+            return f"commit {art['id'][:8]}: {first} ({d.get('author', {}).get('name', '?')})"
+        branch = art["id"].removeprefix("GB")
+        return f"branch {branch}"
+    except AdoError as e:
+        return f"{art['kind']} {art.get('id', art.get('url'))} (unresolved: {e})"
+
+
+def slugify(title: str, limit: int = 50) -> str:
+    """Branch-safe slug: drops leading [TAG] prefixes, ascii-only, cut on a word boundary."""
+    title = re.sub(r"^(\s*\[[^\]]*\])+\s*", "", title)
+    title = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode().lower()
+    words = re.sub(r"[^a-z0-9]+", "-", title).strip("-").split("-")
+    slug = ""
+    for w in words:
+        if not w:
+            continue
+        nxt = f"{slug}-{w}" if slug else w
+        if len(nxt) > limit:
+            break
+        slug = nxt
+    return slug or "work-item"
+
+
+def suggest_branch(item: dict, prefix: str | None = None) -> dict[str, str]:
+    f = item["fields"]
+    wtype = f.get("System.WorkItemType", "")
+    prefix = prefix or ("bugfix" if wtype == "Bug" else "feature")
+    title = f.get("System.Title", "")
+    clean_title = re.sub(r"^(\s*\[[^\]]*\])+\s*", "", title) or title
+    return {
+        "branch": f"{prefix}/{item['id']}-{slugify(title)}",
+        "pr_title": f"{clean_title} (#{item['id']})",
+        "pr_body": f"Resolves #{item['id']}: {title}",
+    }
+
+
+def mine_wiql(sprint: bool) -> str:
+    where = ("[System.AssignedTo] = @Me AND [System.State] NOT IN ('Closed','Done','Removed','Resolved') "
+             "AND [System.TeamProject] = @project")
+    if sprint:
+        where += " AND [System.IterationPath] = @CurrentIteration"
+    return f"SELECT [System.Id] FROM WorkItems WHERE {where} ORDER BY [System.IterationPath], [Microsoft.VSTS.Common.Priority]"
+
+
+def build_tree(client: "Client", wid: int, max_nodes: int = 300) -> tuple[dict[int, dict], dict[int, list[int]], int]:
+    """Climb to the root, then walk down level by level. Returns (items, children, root)."""
+    items: dict[int, dict] = {}
+    root = wid
+    cur = client.item(wid)
+    items[wid] = cur
+    while True:
+        parents = relation_ids(cur)["parent"]
+        if not parents or parents[0] in items:
+            break
+        root = parents[0]
+        cur = client.item(root)
+        items[root] = cur
+    children: dict[int, list[int]] = {}
+    frontier = [root]
+    while frontier and len(items) < max_nodes:
+        nxt: list[int] = []
+        for i in frontier:
+            children[i] = relation_ids(items[i])["children"]
+            nxt += children[i]
+        missing = [c for c in nxt if c not in items][: max_nodes - len(items)]
+        for it in client.items(missing):
+            items[it["id"]] = it
+        frontier = [c for c in nxt if c in items]
+    return items, children, root
+
+
+def render_tree(items: dict[int, dict], children: dict[int, list[int]], root: int, mark: int) -> str:
+    lines: list[str] = []
+
+    def walk(i: int, depth: int):
+        f = items[i]["fields"]
+        flag = "  <-- here" if i == mark else ""
+        lines.append(f"{'  ' * depth}#{i} [{f.get('System.WorkItemType')}] {f.get('System.Title')} ({f.get('System.State')}){flag}")
+        for c in children.get(i, []):
+            if c in items:
+                walk(c, depth + 1)
+
+    walk(root, 0)
+    return "\n".join(lines)
 
 
 def render_item(item: dict, comments: list[dict] | None, links: dict[str, list[int]] | None, titles: dict) -> str:
@@ -183,6 +321,12 @@ def main(argv=None) -> int:
     p.add_argument("--links", action="store_true", help="show parent/children/related with titles")
     p.add_argument("--children", action="store_true", help="also print each child item in full")
     p.add_argument("--no-comments", action="store_true")
+    p.add_argument("--prs", action="store_true", help="linked PRs, commits, branches")
+    p.add_argument("--tree", action="store_true", help="full hierarchy as titles only")
+    p.add_argument("--branch", action="store_true", help="suggest branch name and PR title/body")
+    p.add_argument("--prefix", help="branch prefix override (default feature, bugfix for Bug)")
+    p.add_argument("--mine", action="store_true", help="my open items")
+    p.add_argument("--sprint", action="store_true", help="with --mine: current iteration only")
     p.add_argument("--query", help="WIQL query; prints id, type, state, title only")
     p.add_argument("--top", type=int, default=50)
     p.add_argument("--profile")
@@ -208,6 +352,8 @@ def main(argv=None) -> int:
             client.get(f"wit/workitemtypes?api-version={API}")
             print(f"ok: {org}/{project}")
             return 0
+        if args.mine:
+            args.query = mine_wiql(args.sprint)
         if args.query:
             ids = [w["id"] for w in client.wiql(args.query, args.top).get("workItems", [])]
             info = client.titles(ids)
@@ -217,7 +363,19 @@ def main(argv=None) -> int:
             return 0
         if wid is None:
             p.error("give a work item id, a URL, --query, or --check")
+        if args.tree:
+            items, children, root = build_tree(client, wid)
+            print(render_tree(items, children, root, wid))
+            return 0
         item = client.item(wid)
+        if args.branch:
+            for k, v in suggest_branch(item, args.prefix).items():
+                print(f"{k}: {v}")
+            return 0
+        if args.prs:
+            arts = [a for a in map(parse_artifact, item.get("relations") or []) if a]
+            print("\n".join(describe_artifact(client, a) for a in arts) or "(no linked PRs or commits)")
+            return 0
         links = relation_ids(item) if (args.links or args.children) else None
         titles = client.titles(sorted({i for v in links.values() for i in v})) if links else {}
         print(render_item(item, None if args.no_comments else client.comments(wid), links, titles))

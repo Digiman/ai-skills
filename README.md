@@ -154,7 +154,7 @@ before writing one.
 | Skill | What it does |
 | ----- | ------------ |
 | [digiman-dotnet-versions](skills/digiman-dotnet-versions) | Audits installed .NET SDKs/runtimes against Microsoft's release index for support status and EOL, decides what to keep, checks `global.json` pins, and prints `sudo` commands for you to run. Never removes anything itself. |
-| [azure-devops-workitems](skills/azure-devops-workitems) | Read-only Azure DevOps work item reader: story, acceptance criteria, comments, links and WIQL lists as compact plain text, to enrich coding context cheaply. Uses a PAT or `az login`. |
+| [azure-devops-workitems](skills/azure-devops-workitems) | Read-only Azure DevOps work item reader: story, acceptance criteria, comments, links, linked PRs/commits, hierarchy tree, my-work lists, and branch/PR name suggestions as compact plain text, to enrich coding context cheaply. Uses a PAT or `az login`. |
 
 ## Verifying a change
 
