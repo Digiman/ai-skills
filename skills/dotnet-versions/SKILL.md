@@ -4,7 +4,7 @@ description: Use when the user asks to clean up, prune, or update installed .NET
 compatibility: macOS on Apple silicon; requires the dotnet CLI on PATH and network access for the support check (falls back to a cache, then to "unknown"). Downloads dotnet-core-uninstall to ~/dotnet-core-uninstall on first run.
 license: MIT
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # .NET version maintenance

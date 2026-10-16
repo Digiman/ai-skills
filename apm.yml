@@ -5,7 +5,7 @@
 # Spec: https://microsoft.github.io/apm/reference/manifest-schema/
 # Keep `version` in step with skills/*/SKILL.md `metadata.version`.
 name: digiman-skills
-version: 0.1.0
+version: 0.2.0
 description: Custom Agent Skills for .NET and other developer workflows
 author: Andrey Kukharenko
 license: MIT
