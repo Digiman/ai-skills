@@ -155,6 +155,7 @@ before writing one.
 | ----- | ------------ |
 | [digiman-dotnet-versions](skills/digiman-dotnet-versions) | Audits installed .NET SDKs/runtimes against Microsoft's release index for support status and EOL, decides what to keep, checks `global.json` pins, and prints `sudo` commands for you to run. Never removes anything itself. |
 | [azure-devops-workitems](skills/azure-devops-workitems) | Read-only Azure DevOps work item reader: story, acceptance criteria, comments, links, linked PRs/commits, hierarchy tree, my-work lists, and branch/PR name suggestions as compact plain text, to enrich coding context cheaply. Uses a PAT or `az login`. See [setup](skills/azure-devops-workitems/references/setup.md). |
+| [azure-devops-pullrequests](skills/azure-devops-pullrequests) | Creates, lists, and reads Azure DevOps pull requests (summary, reviewers, open review comments, build/policy checks, accepts PR URLs), links work items, and edits title/description/draft state. Writes are dry-run by default; never pushes, merges, approves, or comments. Reads work with a read-only PAT; writes need a write PAT or `az login`. See [setup](skills/azure-devops-pullrequests/references/setup.md). |
 
 ## Verifying a change
 

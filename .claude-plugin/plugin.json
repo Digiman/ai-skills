@@ -8,5 +8,5 @@
   "homepage": "https://github.com/digiman/ai-skills",
   "repository": "https://github.com/digiman/ai-skills",
   "license": "MIT",
-  "keywords": ["dotnet", "sdk", "azure-devops", "skills"]
+  "keywords": ["dotnet", "sdk", "azure-devops", "pull-requests", "skills"]
 }
