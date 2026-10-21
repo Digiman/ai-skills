@@ -3,9 +3,10 @@
 # minimal metadata and `apm pack` warns about the missing description.
 #
 # Spec: https://microsoft.github.io/apm/reference/manifest-schema/
-# Keep `version` in step with skills/*/SKILL.md `metadata.version`.
+# Collection release version. Keep equal to .claude-plugin/plugin.json; each
+# skill's `metadata.version` is its own and must not exceed this.
 name: digiman-skills
-version: 0.2.0
+version: 0.3.0
 description: Custom Agent Skills for .NET and other developer workflows
 author: Andrey Kukharenko
 license: MIT

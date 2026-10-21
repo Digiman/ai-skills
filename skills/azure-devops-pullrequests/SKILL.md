@@ -4,7 +4,7 @@ description: Azure DevOps (Azure Repos) pull requests - create one and link a wo
 compatibility: Requires python3 (stdlib only), git, and network access to dev.azure.com. Auth via a PAT in ADO_PAT, or an existing `az login` session. Reading needs Code and Build (Read); writing needs Code and Work Items (Read & write).
 license: MIT
 metadata:
-  version: "0.2.0"
+  version: "0.1.0"
 ---
 
 # Azure DevOps pull requests
