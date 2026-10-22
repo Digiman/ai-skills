@@ -6,7 +6,7 @@
 # Collection release version. Keep equal to .claude-plugin/plugin.json; each
 # skill's `metadata.version` is its own and must not exceed this.
 name: digiman-skills
-version: 0.3.0
+version: 0.4.0
 description: Custom Agent Skills for .NET and other developer workflows
 author: Andrey Kukharenko
 license: MIT
