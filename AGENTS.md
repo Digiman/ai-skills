@@ -151,6 +151,22 @@ agent load it only when it matters.
 **Prefer one level of reference depth.** `SKILL.md` → `references/foo.md`.
 No chains.
 
+## Merging
+
+**Merge with a merge commit. Never squash, and never rebase a branch that
+has been reviewed.** `gh pr merge <n> --merge`, or GitHub's "Create a merge
+commit" button.
+
+The history is the record of how a change was built. Each step of the work
+is its own commit, and squashing folds them into one opaque entry that
+hides the reasoning. The release history in `CHANGELOG.md` maps onto those
+commits, so they have to survive the merge.
+
+That shapes the commits themselves: one concern per commit, each one
+building on the last and passing on its own, so a reviewer can read the
+branch from top to bottom and watch the change arrive. Do not force-push
+over a branch under review; add another commit instead.
+
 ## Verifying a change
 
 ```bash
