@@ -418,7 +418,7 @@ def suggest_branch(item: dict, prefix: str | None = None) -> dict[str, str]:
     clean_title = re.sub(r"^(\s*\[[^\]]*\])+\s*", "", title) or title
     return {
         "branch": f"{prefix}/{item['id']}-{slugify(title)}",
-        "pr_title": f"{clean_title} (#{item['id']})",
+        "pr_title": f"{item['id']}: {clean_title}",
         "pr_body": f"Resolves #{item['id']}: {title}",
     }
 

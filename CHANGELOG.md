@@ -13,7 +13,8 @@ Collection releases, newest first. The collection version is `apm.yml` and
   `--add-tag` merges tags. Every ADO write is a dry run until `--yes`; the
   dry run asks the server to validate the change first. `--create-branch`
   creates and checks out the branch named after the item and prints the PR
-  title and body. Branch prefixes are `features/` and `bugfix/`.
+  title and body. Branch prefixes are `features/` and `bugfix/`; the
+  suggested PR title is `<id>: <title>`.
 
 ## 0.3.0
 

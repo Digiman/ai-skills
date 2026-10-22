@@ -100,7 +100,7 @@ class BranchTests(unittest.TestCase):
         self.assertEqual(ado.slugify("[X] !!!"), "work-item")
 
     def test_pr_title_has_no_tag_prefix(self):
-        self.assertEqual(ado.suggest_branch(self.item("Task", "[FE] Show badge"))["pr_title"], "Show badge (#9)")
+        self.assertEqual(ado.suggest_branch(self.item("Task", "[FE] Show badge"))["pr_title"], "9: Show badge")
 
 
 class CreateBranchTests(unittest.TestCase):

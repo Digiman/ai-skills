@@ -92,10 +92,12 @@ as Markdown syntax in the old Boards hub.
 ## Branch and PR naming
 
 `--branch` prints `branch`, `pr_title` and `pr_body` derived from the item
-(`features/<id>-<slug>`, `bugfix/` for Bugs, `--prefix` to override). Only
-*suggest* these; do not create a branch or PR unless the user asked. The body
-uses `#<id>`, which links in Azure Repos. For a GitHub repo wired to ADO, use
-`AB#<id>` instead. Follow the repo's own branch convention if it has one.
+(`features/<id>-<slug>` for the branch, `<id>: <title>` for the PR title,
+`Resolves #<id>: <title>` for the body, `bugfix/` for Bugs, `--prefix` to
+override). Only *suggest* these; do not create a branch or PR unless the user
+asked. The `#<id>` in the body links in Azure Repos and completes the work
+item when the PR does. For a GitHub repo wired to ADO, use `AB#<id>` instead.
+Follow the repo's own branch convention if it has one.
 `azure-devops-pullrequests` creates the PR itself.
 
 ## Create the branch
