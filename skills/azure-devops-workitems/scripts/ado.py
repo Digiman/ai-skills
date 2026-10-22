@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only Azure DevOps work item reader that prints compact, token-cheap text.
+"""Azure DevOps work item reader and commenter that prints compact, token-cheap text.
 
 Usage:
   ado.py <id|work-item-url> [--links] [--children] [--no-comments] [--profile NAME]
@@ -7,16 +7,27 @@ Usage:
   ado.py <id> --prs                       # linked PRs, commits, branches (resolved)
   ado.py <id> --tree                      # whole hierarchy, titles only, this item marked
   ado.py <id> --branch [--prefix feature] # suggested branch name + PR title/body
+  ado.py <id> --create-branch [--repo DIR]  # create and check out that branch locally
   ado.py --mine [--sprint]                # my open items (optionally current sprint)
   ado.py --query "<WIQL>" [--top N]      # list ids + titles only
   ado.py --check                          # verify config/auth without fetching
+
+Writes (need a PAT with the Work Items: Read & write scope):
+  ado.py <id> --comment "text" [--comment-format html|markdown]
+  ado.py <id> --comment-file notes.md     # - reads stdin
+  ado.py <id> --set State=Active --set "Title=New title"
+  ado.py <id> --add-tag backend --add-tag needs-review
+  ado.py <id> --set AssignedTo=@me
+  ... plus --yes                           # without it every write is a dry run
 
 Config (first match wins): environment, then the file named by ADO_CONFIG,
 then ~/.config/ado.env (KEY=value lines). Keys: ADO_ORG, ADO_PROJECT, ADO_PAT.
 With --profile NAME the keys are read as ADO_<NAME>_ORG, etc., falling back to
 the unprefixed ones. If no PAT is set, an `az login` session is used.
 
-Only GET requests (plus the read-only WIQL POST) are ever sent.
+Reads send GET requests (plus the read-only WIQL POST). Writes send a PATCH to
+the work item and a POST to its comments, and only when --yes is given.
+--create-branch runs git checkout -b in a local clone and never pushes.
 """
 
 from __future__ import annotations
@@ -36,12 +47,44 @@ import urllib.request
 from pathlib import Path
 
 API = "7.1"
+COMMENTS_API = "7.1-preview.4"
 ADO_RESOURCE = "499b84ac-1321-427f-aa17-267ca6975798"
 URL_RE = re.compile(r"https?://dev\.azure\.com/([^/]+)/([^/]+)/_workitems/edit/(\d+)")
 FIELDS = {
     "desc": "System.Description",
     "ac": "Microsoft.VSTS.Common.AcceptanceCriteria",
     "repro": "Microsoft.VSTS.TCM.ReproSteps",
+}
+# Fields whose value is rich text: Azure DevOps renders HTML there, not Markdown.
+HTML_FIELDS = {
+    "System.Description",
+    "Microsoft.VSTS.Common.AcceptanceCriteria",
+    "Microsoft.VSTS.TCM.ReproSteps",
+}
+# Fields that hold a person; "@me" in a --set value means the authenticated user.
+IDENTITY_FIELDS = {"System.AssignedTo"}
+# Markup that counts as deliberate HTML; anything else is escaped.
+HTML_TAG_RE = re.compile(
+    r"</?(div|p|br|b|i|em|strong|u|s|ul|ol|li|a|code|pre|h[1-6]|table|thead|tbody|tr|td|th|span|hr|img|blockquote)\b[^>]*>",
+    re.I)
+# Short names for --set. Anything not listed here is matched against the
+# fields the item actually has, so custom fields work by their own name.
+FIELD_ALIASES = {
+    "title": "System.Title",
+    "state": "System.State",
+    "reason": "System.Reason",
+    "description": "System.Description",
+    "tags": "System.Tags",
+    "assignedto": "System.AssignedTo",
+    "areapath": "System.AreaPath",
+    "iterationpath": "System.IterationPath",
+    "type": "System.WorkItemType",
+    "acceptancecriteria": "Microsoft.VSTS.Common.AcceptanceCriteria",
+    "reprosteps": "Microsoft.VSTS.TCM.ReproSteps",
+    "priority": "Microsoft.VSTS.Common.Priority",
+    "severity": "Microsoft.VSTS.Common.Severity",
+    "storypoints": "Microsoft.VSTS.Scheduling.StoryPoints",
+    "remainingwork": "Microsoft.VSTS.Scheduling.RemainingWork",
 }
 
 
@@ -101,8 +144,20 @@ def auth_header(pat: str) -> str:
     return "Bearer " + token
 
 
+def error_detail(err: urllib.error.HTTPError) -> str:
+    """Azure DevOps puts the useful part of a failure in the body: rule ids
+    like TF401262 for a refused state transition, or the missing permission.
+    An empty body means our own hint is better."""
+    try:
+        body = json.loads(err.read().decode())
+    except (ValueError, OSError):
+        return ""
+    return str(body.get("message", "")) if isinstance(body, dict) else ""
+
+
 class Client:
     def __init__(self, org: str, project: str, pat: str):
+        self.org, self.project = org, project
         self.base = f"https://dev.azure.com/{urllib.parse.quote(org)}/{urllib.parse.quote(project)}/_apis"
         self.auth = auth_header(pat)
 
@@ -113,10 +168,14 @@ class Client:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 return json.loads(resp.read().decode() or "{}")
         except urllib.error.HTTPError as e:
+            method = req.get_method()
             git = "/_apis/git/" in req.full_url
-            hint = {401: "token rejected, expired, or lacks Code (Read) scope" if git else "token rejected or expired", 403: "token lacks Work Items (Read) scope",
+            # The WIQL POST is a read; only a change to a work item needs write scope.
+            write = method in ("PATCH", "POST") and "wit/workitems" in req.full_url.lower()
+            hint = {401: "token rejected, expired, or lacks Code (Read) scope" if git else "token rejected or expired",
+                    403: ("token lacks Work Items (Read & write) scope" if write else "token lacks Work Items (Read) scope"),
                     404: "item, project or org not found (check ADO_ORG/ADO_PROJECT)"}.get(e.code, "")
-            raise AdoError(f"HTTP {e.code} for {req.full_url.split('?')[0]}: {hint}".rstrip(": "))
+            raise AdoError(f"HTTP {e.code} for {method} {req.full_url.split('?')[0]}: {error_detail(e) or hint}".rstrip(": "))
         except urllib.error.URLError as e:
             raise AdoError(f"network error: {e.reason}")
 
@@ -144,7 +203,30 @@ class Client:
         return self.get(f"wit/workitems/{wid}?$expand=relations&api-version={API}")
 
     def comments(self, wid: int):
-        return self.get(f"wit/workItems/{wid}/comments?api-version=7.1-preview.4").get("comments", [])
+        return self.get(f"wit/workItems/{wid}/comments?api-version={COMMENTS_API}").get("comments", [])
+
+    def post_comment(self, wid: int, text: str, fmt: str = "html") -> dict:
+        """Add a comment to the work item's discussion thread."""
+        body = json.dumps({"text": text}).encode()
+        req = urllib.request.Request(
+            f"{self.base}/wit/workItems/{wid}/comments?format={fmt}&api-version={COMMENTS_API}",
+            data=body, method="POST")
+        req.add_header("Content-Type", "application/json")
+        return self._send(req)
+
+    def update_item(self, wid: int, patch: list[dict], validate_only: bool = False) -> dict:
+        """Patch work item fields. validate_only runs the server's rules without saving."""
+        query = f"validateOnly={'true' if validate_only else 'false'}&api-version={API}"
+        req = urllib.request.Request(f"{self.base}/wit/workitems/{wid}?{query}",
+                                     data=json.dumps(patch).encode(), method="PATCH")
+        req.add_header("Content-Type", "application/json-patch+json")
+        return self._send(req)
+
+    def me(self) -> dict:
+        """The authenticated user's identity, for --set AssignedTo=@me."""
+        url = f"https://dev.azure.com/{urllib.parse.quote(self.org)}/_apis/connectionData?api-version={API}-preview"
+        req = urllib.request.Request(url)
+        return self._send(req).get("authenticatedUser", {}).get("id", {})
 
     def titles(self, ids: list[int]) -> dict[int, dict]:
         if not ids:
@@ -218,6 +300,82 @@ def resolve_field(fields: dict, name: str) -> str | None:
     return hits[0] if len(hits) == 1 else None
 
 
+def resolve_write_field(name: str, fields: dict) -> str:
+    """Full reference name for a field we are about to set."""
+    key = name.strip()
+    if "." in key:
+        return key
+    alias = FIELD_ALIASES.get(key.lower())
+    if alias:
+        return alias
+    resolved = resolve_field(fields, key)
+    if resolved:
+        return resolved
+    raise AdoError(f"unknown field {name!r}; run --fields all to see the names on this item")
+
+
+def parse_assignments(values: list[str]) -> list[tuple[str, str]]:
+    """Parse --set FIELD=VALUE. Only the first '=' separates name from value."""
+    out: list[tuple[str, str]] = []
+    for raw in values:
+        if "=" not in raw:
+            raise AdoError(f"--set needs FIELD=VALUE, got {raw!r}")
+        name, _, value = raw.partition("=")
+        if not name.strip():
+            raise AdoError(f"--set needs a field name, got {raw!r}")
+        out.append((name.strip(), value))
+    return out
+
+
+def merge_tags(current: str, additions: list[str]) -> str:
+    """Add tags to the existing ones, keeping order and dropping duplicates."""
+    tags = [t.strip() for t in (current or "").split(";") if t.strip()]
+    for add in additions:
+        tag = add.strip()
+        if tag and not any(t.lower() == tag.lower() for t in tags):
+            tags.append(tag)
+    return "; ".join(tags)
+
+
+def text_to_html(text: str) -> str:
+    """Plain text to the HTML Azure DevOps renders. Text that already carries
+    real markup is left alone, so a caller can pass HTML deliberately; anything
+    else is escaped, so a stray '<' cannot inject markup."""
+    if HTML_TAG_RE.search(text):
+        return text
+    escaped = html.escape(text, quote=False)
+    return escaped.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br />")
+
+
+def prepare_value(field: str, value: str) -> str:
+    """Rich text fields take HTML; everything else is stored as given."""
+    return text_to_html(value) if field in HTML_FIELDS else value
+
+
+def build_patch(changes: list[tuple[str, str]]) -> list[dict]:
+    """JSON-patch ops for a work item update. 'add' covers create and replace."""
+    return [{"op": "add", "path": f"/fields/{name}", "value": value} for name, value in changes]
+
+
+def truncate(text: str, limit: int = 120) -> str:
+    text = text.replace("\n", " ").strip()
+    return text if len(text) <= limit else text[:limit] + "..."
+
+
+def field_display(value) -> str:
+    """One-line form of a field value for the plan."""
+    if value is None or value == "":
+        return "(empty)"
+    if isinstance(value, dict):
+        return value.get("displayName") or value.get("uniqueName") or "(identity)"
+    return truncate(clean(value) if isinstance(value, str) else str(value))
+
+
+def identity_value(me: dict) -> str:
+    """The value to write for an identity field: the unique name if there is one."""
+    return me.get("uniqueName") or me.get("displayName") or ""
+
+
 def render_fields(item: dict, names: list[str]) -> str:
     f = item["fields"]
     if names == ["all"]:
@@ -255,7 +413,7 @@ def slugify(title: str, limit: int = 50) -> str:
 def suggest_branch(item: dict, prefix: str | None = None) -> dict[str, str]:
     f = item["fields"]
     wtype = f.get("System.WorkItemType", "")
-    prefix = prefix or ("bugfix" if wtype == "Bug" else "feature")
+    prefix = prefix or ("bugfix" if wtype == "Bug" else "features")
     title = f.get("System.Title", "")
     clean_title = re.sub(r"^(\s*\[[^\]]*\])+\s*", "", title) or title
     return {
@@ -263,6 +421,33 @@ def suggest_branch(item: dict, prefix: str | None = None) -> dict[str, str]:
         "pr_title": f"{clean_title} (#{item['id']})",
         "pr_body": f"Resolves #{item['id']}: {title}",
     }
+
+
+def git(*args: str) -> tuple[int, str]:
+    """Run a git command. Returns (exit code, output)."""
+    try:
+        p = subprocess.run(["git", *args], capture_output=True, text=True, timeout=15)
+        return p.returncode, (p.stdout or p.stderr or "").strip()
+    except (OSError, subprocess.SubprocessError) as e:
+        return 1, str(e)
+
+
+def create_branch(name: str, path: str) -> str:
+    """Create and check out a local branch. Never pushes, never touches the
+    remote. Returns where the branch was made, so the caller can say it."""
+    code, root = git("-C", path, "rev-parse", "--show-toplevel")
+    if code != 0 or not root:
+        raise AdoError(f"{path} is not inside a git repository")
+    code, current = git("-C", root, "rev-parse", "--abbrev-ref", "HEAD")
+    if code == 0 and current == name:
+        return f"already checked out in {root}"
+    code, _ = git("-C", root, "show-ref", "--verify", "--quiet", f"refs/heads/{name}")
+    if code == 0:
+        raise AdoError(f"branch {name} already exists in {root}; check it out or use --prefix")
+    code, err = git("-C", root, "checkout", "-b", name)
+    if code != 0:
+        raise AdoError(f"git checkout -b {name} failed: {err}")
+    return f"created in {root}"
 
 
 def mine_wiql(sprint: bool) -> str:
@@ -344,6 +529,91 @@ def render_item(item: dict, comments: list[dict] | None, links: dict[str, list[i
     return "\n".join(lines)
 
 
+def render_plan(item: dict, changes: list[tuple[str, str, str, str]], comment: str | None, fmt: str,
+                label: str = "dry-run") -> str:
+    """What a write would do, before anything is sent."""
+    f = item.get("fields", {})
+    lines = [f"{label}: #{item['id']} [{f.get('System.WorkItemType', '?')}] {f.get('System.Title', '?')}"]
+    for ref, old, new, _ in changes:
+        lines.append(f"  {ref}: {old} -> {new}")
+    if comment is not None:
+        lines.append(f"  comment ({fmt}):")
+        for line in comment.splitlines() or [""]:
+            lines.append(f"    | {line}")
+    return "\n".join(lines)
+
+
+def read_text(spec: str) -> str:
+    try:
+        return sys.stdin.read() if spec == "-" else Path(spec).read_text(encoding="utf-8")
+    except OSError as e:
+        raise AdoError(f"cannot read {spec}: {e}")
+
+
+def cmd_write(args, client: "Client", item: dict) -> int:
+    """Update fields and/or add a comment. Nothing is sent without --yes."""
+    wid = item["id"]
+    fields = item.get("fields", {})
+
+    values: dict[str, str] = {}
+    for name, value in parse_assignments(args.set or []):
+        ref = resolve_write_field(name, fields)
+        if ref in values:
+            raise AdoError(f"--set {name} was given twice")
+        values[ref] = value
+    if args.add_tag:
+        base = values.get("System.Tags", fields.get("System.Tags") or "")
+        values["System.Tags"] = merge_tags(base, args.add_tag)
+    for ref, value in list(values.items()):
+        if ref in IDENTITY_FIELDS and value.strip().lower() == "@me":
+            values[ref] = identity_value(client.me())
+            if not values[ref]:
+                raise AdoError("cannot resolve the current user for @me")
+
+    changes = []
+    for ref, value in values.items():
+        prepared = prepare_value(ref, value)
+        changes.append((ref, field_display(fields.get(ref)), field_display(prepared), prepared))
+
+    comment = None
+    payload = None
+    if args.comment_file:
+        comment = read_text(args.comment_file)
+    elif args.comment is not None:
+        comment = args.comment
+    if comment is not None:
+        comment = comment.strip()
+        if not comment:
+            raise AdoError("the comment is empty")
+        payload = text_to_html(comment) if args.comment_format == "html" else comment
+
+    print(render_plan(item, changes, comment, args.comment_format, "dry-run" if not args.yes else "write"))
+    url = f"https://dev.azure.com/{urllib.parse.quote(client.org)}/{urllib.parse.quote(client.project)}/_workitems/edit/{wid}"
+
+    if not args.yes:
+        if changes:
+            try:
+                client.update_item(wid, build_patch([(r, v) for r, _, _, v in changes]), validate_only=True)
+                print("server check: ok, Azure DevOps accepts this change")
+            except AdoError as e:
+                if "HTTP 401" in str(e) or "HTTP 403" in str(e):
+                    print(f"server check skipped: {e}")
+                else:
+                    print(f"server check failed: {e}", file=sys.stderr)
+                    return 1
+        print("nothing sent; re-run with --yes after the user confirms")
+        return 0
+
+    if changes:
+        updated = client.update_item(wid, build_patch([(r, v) for r, _, _, v in changes]))
+        print(f"updated: #{wid} rev {updated.get('rev', '?')}")
+    if payload is not None:
+        result = client.post_comment(wid, payload, args.comment_format)
+        print(f"commented: #{wid} comment {result.get('id', '?')}")
+    print(f"url: {url}")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("target", nargs="?", help="work item id or dev.azure.com work item URL")
@@ -354,6 +624,9 @@ def main(argv=None) -> int:
     p.add_argument("--prs", action="store_true", help="linked PRs, commits, branches")
     p.add_argument("--tree", action="store_true", help="full hierarchy as titles only")
     p.add_argument("--branch", action="store_true", help="suggest branch name and PR title/body")
+    p.add_argument("--create-branch", action="store_true",
+                   help="create and check out that branch locally (never pushes)")
+    p.add_argument("--repo", help="working copy for --create-branch (default: current directory)")
     p.add_argument("--prefix", help="branch prefix override (default feature, bugfix for Bug)")
     p.add_argument("--mine", action="store_true", help="my open items")
     p.add_argument("--sprint", action="store_true", help="with --mine: current iteration only")
@@ -361,7 +634,24 @@ def main(argv=None) -> int:
     p.add_argument("--top", type=int, default=50)
     p.add_argument("--profile")
     p.add_argument("--check", action="store_true", help="validate config and credentials only")
+    p.add_argument("--comment", help="comment text to add to the work item")
+    p.add_argument("--comment-file", help="file holding the comment text; - for stdin")
+    p.add_argument("--comment-format", choices=["html", "markdown"], default="html",
+                   help="how the comment text is written (default: html)")
+    p.add_argument("--set", action="append", dest="set", metavar="FIELD=VALUE",
+                   help="set a field; repeatable")
+    p.add_argument("--add-tag", action="append", dest="add_tag", metavar="TAG",
+                   help="add a tag, keeping the existing ones; repeatable")
+    p.add_argument("--yes", action="store_true", help="actually write (default is a dry run)")
     args = p.parse_args(argv)
+
+    writes = bool(args.comment is not None or args.comment_file or args.set or args.add_tag)
+    if args.comment is not None and args.comment_file:
+        p.error("use either --comment or --comment-file, not both")
+    if args.yes and not writes:
+        p.error("--yes needs --comment, --comment-file, --set or --add-tag")
+    if writes and (args.query or args.mine or args.tree):
+        p.error("a write cannot be combined with --query, --mine or --tree")
 
     cfg = resolve_config(args.profile)
     org, project = cfg["org"], cfg["project"]
@@ -398,6 +688,19 @@ def main(argv=None) -> int:
             print(render_tree(items, children, root, wid))
             return 0
         item = client.item(wid)
+        if writes:
+            if args.fields or args.branch or args.prs:
+                p.error("--comment, --set and --add-tag cannot be combined with --fields, --branch or --prs")
+            return cmd_write(args, client, item)
+        if args.create_branch:
+            if args.fields or args.prs:
+                p.error("--create-branch cannot be combined with --fields or --prs")
+            suggestion = suggest_branch(item, args.prefix)
+            where = create_branch(suggestion["branch"], args.repo or ".")
+            print(f"branch: {suggestion['branch']}  ({where})")
+            print(f"pr_title: {suggestion['pr_title']}")
+            print(f"pr_body: {suggestion['pr_body']}")
+            return 0
         if args.fields:
             print(render_fields(item, [n.strip() for n in args.fields.split(",") if n.strip()]))
             return 0

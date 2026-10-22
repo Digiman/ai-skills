@@ -5,6 +5,16 @@ Collection releases, newest first. The collection version is `apm.yml` and
 `SKILL.md` (`metadata.version`). Format: one line per changed skill. See
 `AGENTS.md` for the versioning rules.
 
+## 0.4.0
+
+- `azure-devops-workitems` 0.4.0: writes and branch creation. `--comment` /
+  `--comment-file` adds a comment to the discussion thread, `--set
+  FIELD=VALUE` updates fields (state, title, tags, assignee, custom fields),
+  `--add-tag` merges tags. Every ADO write is a dry run until `--yes`; the
+  dry run asks the server to validate the change first. `--create-branch`
+  creates and checks out the branch named after the item and prints the PR
+  title and body. Branch prefixes are `features/` and `bugfix/`.
+
 ## 0.3.0
 
 - `azure-devops-pullrequests` 0.1.0: new. Create PRs and link work items;

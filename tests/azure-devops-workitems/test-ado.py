@@ -8,7 +8,10 @@ ship whole to every consumer.
 from __future__ import annotations
 
 import importlib.util
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -87,7 +90,7 @@ class BranchTests(unittest.TestCase):
         return {"id": 9, "fields": {"System.WorkItemType": wtype, "System.Title": title}}
 
     def test_strips_tag_prefixes_and_prefixes_by_type(self):
-        self.assertEqual(ado.suggest_branch(self.item("Task", "[BE] Add imported flag"))["branch"], "feature/9-add-imported-flag")
+        self.assertEqual(ado.suggest_branch(self.item("Task", "[BE] Add imported flag"))["branch"], "features/9-add-imported-flag")
         self.assertEqual(ado.suggest_branch(self.item("Bug", "Crash on save!"))["branch"], "bugfix/9-crash-on-save")
         self.assertEqual(ado.suggest_branch(self.item("Bug", "x"), "hotfix")["branch"], "hotfix/9-x")
 
@@ -98,6 +101,43 @@ class BranchTests(unittest.TestCase):
 
     def test_pr_title_has_no_tag_prefix(self):
         self.assertEqual(ado.suggest_branch(self.item("Task", "[FE] Show badge"))["pr_title"], "Show badge (#9)")
+
+
+class CreateBranchTests(unittest.TestCase):
+    """The git side of --create-branch, against a throwaway repository."""
+
+    def setUp(self):
+        if not shutil.which("git"):
+            self.skipTest("git is not installed")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name)
+        self.git("init", "-q")
+        self.git("commit", "-q", "--allow-empty", "-m", "init")
+        self.original_branch = self.git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), "-c", "user.email=t@t",
+                               "-c", "user.name=t", *args],
+                              capture_output=True, text=True, check=True)
+
+    def test_creates_and_checks_out_the_branch(self):
+        where = ado.create_branch("features/9-add-flag", str(self.repo))
+        self.assertIn("created in", where)
+        self.assertIn(str(self.repo), where)
+        self.assertIn("features/9-add-flag", self.git("branch", "--list").stdout)
+
+    def test_refuses_an_existing_branch(self):
+        ado.create_branch("features/9-add-flag", str(self.repo))
+        self.git("checkout", "-q", self.original_branch)
+        with self.assertRaises(ado.AdoError):
+            ado.create_branch("features/9-add-flag", str(self.repo))
+
+    def test_refuses_a_path_outside_a_repository(self):
+        outside = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, outside)
+        with self.assertRaises(ado.AdoError):
+            ado.create_branch("features/9-add-flag", outside)
 
 
 class MineAndTreeTests(unittest.TestCase):
@@ -129,6 +169,61 @@ class FieldTests(unittest.TestCase):
     def test_all_skips_empty(self):
         out = ado.render_fields({"id": 1, "fields": {**self.F, "X.Empty": ""}}, ["all"])
         self.assertNotIn("X.Empty", out)
+
+
+class WriteTests(unittest.TestCase):
+    """The logic behind --comment, --set and --add-tag."""
+
+    def test_plain_text_becomes_html_with_line_breaks(self):
+        self.assertEqual(ado.text_to_html("a\nb"), "a<br />b")
+        self.assertEqual(ado.text_to_html("AT&T <x>"), "AT&amp;T &lt;x&gt;")
+
+    def test_existing_html_is_left_alone(self):
+        self.assertEqual(ado.text_to_html("<div>keep</div>"), "<div>keep</div>")
+
+    def test_angle_brackets_that_are_not_markup_are_escaped(self):
+        self.assertEqual(ado.text_to_html("see <https://x.dev> now"), "see &lt;https://x.dev&gt; now")
+
+    def test_only_rich_text_fields_are_converted(self):
+        self.assertEqual(ado.prepare_value("System.Description", "a\nb"), "a<br />b")
+        self.assertEqual(ado.prepare_value("System.Title", "a\nb"), "a\nb")
+
+    def test_parse_assignments_splits_on_first_equal(self):
+        self.assertEqual(ado.parse_assignments(["Title=a=b", "State=Active"]),
+                         [("Title", "a=b"), ("State", "Active")])
+
+    def test_parse_assignments_rejects_junk(self):
+        with self.assertRaises(ado.AdoError):
+            ado.parse_assignments(["Title"])
+        with self.assertRaises(ado.AdoError):
+            ado.parse_assignments(["=value"])
+
+    def test_resolve_write_field(self):
+        fields = {"System.Title": "T", "Custom.Stage": "x"}
+        self.assertEqual(ado.resolve_write_field("State", fields), "System.State")
+        self.assertEqual(ado.resolve_write_field("acceptancecriteria", fields),
+                         "Microsoft.VSTS.Common.AcceptanceCriteria")
+        self.assertEqual(ado.resolve_write_field("Custom.Stage", fields), "Custom.Stage")
+        self.assertEqual(ado.resolve_write_field("Stage", fields), "Custom.Stage")
+        with self.assertRaises(ado.AdoError):
+            ado.resolve_write_field("Nope", fields)
+
+    def test_merge_tags_keeps_existing_and_skips_duplicates(self):
+        self.assertEqual(ado.merge_tags("web; front", ["backend", "WEB"]), "web; front; backend")
+        self.assertEqual(ado.merge_tags("", ["one"]), "one")
+
+    def test_build_patch_uses_add_ops(self):
+        self.assertEqual(ado.build_patch([("System.State", "Active")]),
+                         [{"op": "add", "path": "/fields/System.State", "value": "Active"}])
+
+    def test_field_display_is_one_line(self):
+        self.assertEqual(ado.field_display({"displayName": "Ann"}), "Ann")
+        self.assertEqual(ado.field_display(None), "(empty)")
+        self.assertEqual(ado.field_display("<div>a</div>\n<div>b</div>"), "a b")
+
+    def test_identity_value_prefers_unique_name(self):
+        self.assertEqual(ado.identity_value({"uniqueName": "a@b.c", "displayName": "A"}), "a@b.c")
+        self.assertEqual(ado.identity_value({"displayName": "A"}), "A")
 
 
 if __name__ == "__main__":
