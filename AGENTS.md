@@ -102,8 +102,22 @@ Two traps `validate.py` guards:
   `anthropics-`, or `cc-plugin-`, and must not be one of Anthropic's own
   reserved names.
 
-Keep `version` in step across `apm.yml` and `.claude-plugin/plugin.json`, and
-`metadata.version` in each `SKILL.md`.
+## Versioning
+
+Semver, two levels:
+
+- **Collection** — `version` in `apm.yml` and `.claude-plugin/plugin.json`,
+  always equal. This is the release number consumers install. Bump it on every
+  release to the highest bump among the skills that changed; a new skill is a
+  minor bump.
+- **Skill** — `metadata.version` in each `SKILL.md`, bumped only when that
+  skill changes. Patch for fixes and docs, minor for a new command or flag,
+  major for a breaking change to output, flags, or the safety contract. A
+  rename is breaking: the name is the install identity.
+
+`validate.py` enforces that the two manifests match and that no skill is newer
+than the collection. Record every release in `CHANGELOG.md`, one line per
+changed skill.
 
 ## House rules
 

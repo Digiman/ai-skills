@@ -115,7 +115,7 @@ def parse_skill(skill_dir: Path) -> list[str]:
     # `metadata:` with nothing under it parses as None, so check presence of the
     # version key separately from the type of the mapping.
     if not isinstance(metadata, dict) or "version" not in metadata:
-        problems.append("metadata.version is missing; keep it in step with apm.yml")
+        problems.append("metadata.version is missing; add the skill's own semver version")
 
     for field in ("name", "description", "compatibility", "license"):
         value = front.get(field)
@@ -308,40 +308,55 @@ def check_plugin_manifests() -> list[str]:
     return problems
 
 
-def check_versions(skill_dirs: list[Path]) -> list[str]:
-    """apm.yml, plugin.json and each SKILL.md metadata.version must agree.
+SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
-    Three manifests and N skills is exactly the setup where one gets bumped
-    and the others quietly drift, and a consumer then sees two versions.
+
+def check_versions(skill_dirs: list[Path]) -> list[str]:
+    """The collection version (apm.yml, plugin.json) is one release number; each
+    skill carries its own and bumps it only when that skill changes.
+
+    So: apm.yml and plugin.json must match, and no skill may claim a version
+    newer than the release that shipped it.
     """
-    versions: dict[str, str] = {}
+    collection: dict[str, str] = {}
     try:
         apm = yaml.safe_load(MANIFEST.read_text(encoding="utf-8")) or {}
         if isinstance(apm, dict) and isinstance(apm.get("version"), str):
-            versions["apm.yml"] = apm["version"]
+            collection["apm.yml"] = apm["version"]
     except (OSError, yaml.YAMLError):
         pass
     plugin_problems: list[str] = []
     if PLUGIN_MANIFEST.is_file():
         plugin = _load_json(PLUGIN_MANIFEST, plugin_problems)
         if plugin and isinstance(plugin.get("version"), str):
-            versions["plugin.json"] = plugin["version"]
-
-    for skill_dir in skill_dirs:
-        front = _read_frontmatter(skill_dir / "SKILL.md")
-        if not isinstance(front, dict):
-            continue
-        meta = front.get("metadata")
-        if isinstance(meta, dict) and isinstance(meta.get("version"), str):
-            versions[f"{skill_dir.name}/SKILL.md"] = meta["version"]
+            collection["plugin.json"] = plugin["version"]
 
     problems = []
-    distinct = set(versions.values())
-    if len(distinct) > 1:
-        detail = ", ".join(f"{k}={v}" for k, v in sorted(versions.items()))
-        problems.append(f"versions disagree: {detail}. Keep apm.yml, plugin.json, "
-                        f"and every SKILL.md metadata.version in step.")
+    if len(set(collection.values())) > 1:
+        detail = ", ".join(f"{k}={v}" for k, v in sorted(collection.items()))
+        problems.append(f"collection versions disagree: {detail}. "
+                        f"Keep apm.yml and plugin.json in step.")
+
+    release = next(iter(collection.values()), None)
+    release_t = _semver(release) if release else None
+    for skill_dir in skill_dirs:
+        front = _read_frontmatter(skill_dir / "SKILL.md")
+        meta = front.get("metadata") if isinstance(front, dict) else None
+        version = meta.get("version") if isinstance(meta, dict) else None
+        if not isinstance(version, str):
+            continue
+        skill_t = _semver(version)
+        if skill_t is None:
+            problems.append(f"{skill_dir.name}/SKILL.md metadata.version {version!r} is not semver (X.Y.Z)")
+        elif release_t and skill_t > release_t:
+            problems.append(f"{skill_dir.name}/SKILL.md version {version} is newer than the collection "
+                            f"version {release}; bump apm.yml and plugin.json first")
     return problems
+
+
+def _semver(text: str) -> tuple[int, int, int] | None:
+    m = SEMVER.match(text)
+    return (int(m[1]), int(m[2]), int(m[3])) if m else None
 
 
 def versions_present(skill_dirs: list[Path]) -> bool:

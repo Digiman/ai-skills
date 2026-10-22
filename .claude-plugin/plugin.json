@@ -1,12 +1,12 @@
 {
   "name": "digiman-skills",
   "description": "Custom Agent Skills for .NET and other developer workflows",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": {
     "name": "Andrey Kukharenko"
   },
   "homepage": "https://github.com/digiman/ai-skills",
   "repository": "https://github.com/digiman/ai-skills",
   "license": "MIT",
-  "keywords": ["dotnet", "sdk", "azure-devops", "skills"]
+  "keywords": ["dotnet", "sdk", "azure-devops", "pull-requests", "skills"]
 }
