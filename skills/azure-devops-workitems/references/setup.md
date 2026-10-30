@@ -8,10 +8,12 @@ Azure DevOps > User settings > Personal access tokens > New token.
 
 | Scope | Needed for |
 | ----- | ---------- |
-| Work Items: Read | everything except `--prs` |
+| Work Items: Read | everything except `--comment`, `--comment-file`, `--set` and `--add-tag` |
+| Work Items: Read & write | commenting and updating fields |
 | Code: Read | `--prs` (resolving PR, commit and branch details) |
 
-Use the shortest expiry you can live with. Read-only scopes only.
+Use the shortest expiry you can live with. Read-only scopes only, unless you
+want the skill to comment on tickets and move them between states.
 
 ## 2. Create the config file
 
@@ -58,6 +60,7 @@ python3 scripts/ado.py <id>
 | ------- | ----- |
 | `ADO_ORG and ADO_PROJECT are not set` | config file missing or wrong path |
 | HTTP 401 | token expired, wrong org, or (for `--prs`) no Code: Read |
-| HTTP 403 | token lacks Work Items: Read |
+| HTTP 403 | token lacks Work Items: Read, or the write scope for a comment or a field update |
 | HTTP 404 | wrong id, project, or org |
 | `no credentials` | no `ADO_PAT` and no `az login` session |
+| `server check skipped` | the token cannot write, so the dry run could not validate the change |
