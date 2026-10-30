@@ -167,6 +167,32 @@ building on the last and passing on its own, so a reviewer can read the
 branch from top to bottom and watch the change arrive. Do not force-push
 over a branch under review; add another commit instead.
 
+### After merging
+
+1. **Delete the feature branch, local and remote.** A fully merged branch
+   has nowhere to go, and a stale one invites force-pushing old work on
+   top of it later:
+
+   ```bash
+   git branch -d <branch>
+   git push origin --delete <branch>
+   ```
+
+2. **Tag and release if anything shipped changed.** An annotated tag at the
+   merge commit, then a GitHub release whose notes say what the collection
+   version is and which skills are in it, matching `CHANGELOG.md`:
+
+   ```bash
+   git tag -a v<X.Y.Z> <merge-commit> -m "digiman-skills <X.Y.Z>"
+   git push origin v<X.Y.Z>
+   gh release create v<X.Y.Z> --title "digiman-skills <X.Y.Z>" --notes-file notes.md
+   ```
+
+3. **Check the local install picked up the merge.** The skills are linked
+   into `~/.agents/skills` as symlinks to this repo, so nothing needs
+   reinstalling — but confirm the version in the installed `SKILL.md` is
+   the one you just released.
+
 ## Verifying a change
 
 ```bash
